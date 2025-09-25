@@ -1,0 +1,24 @@
+{
+    "name": "hospitality/api",
+    "description": "Hospitality Management System API - Multi-tenant PWA",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "firebase/php-jwt": "^6.8",
+        "vlucas/phpdotenv": "^5.5",
+        "phpmailer/phpmailer": "^6.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "Hospitality\\": "src/"
+        }
+    },
+    "scripts": {
+        "dev-server": "php -S localhost:8000 -t httpdocs/"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}
