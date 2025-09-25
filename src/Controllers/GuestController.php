@@ -16,6 +16,8 @@
 
 namespace Hospitality\Controllers;
 
+use Hospitality\Services\CheckinService;
+use Hospitality\Repositories\GuestAccessRepository;
 use Hospitality\Repositories\GuestRepository;
 use Hospitality\Repositories\UserRepository;
 use Hospitality\Middleware\AuthMiddleware;
@@ -28,10 +30,12 @@ use Exception;
 class GuestController {
     private GuestRepository $guestRepository;
     private UserRepository $userRepository;
+    private CheckinService $checkinService;
 
     public function __construct() {
         $this->guestRepository = new GuestRepository();
         $this->userRepository = new UserRepository();
+        $this->checkinService = new CheckinService();
     }
 
     /**
@@ -180,19 +184,19 @@ class GuestController {
                 return;
             }
 
-            // For super admin, use stadium_id from query parameter or default to first stadium
+            // Get stadium ID - handles super admin fallback
             $stadiumId = TenantMiddleware::getStadiumIdForQuery();
 
             if (!$stadiumId && $decoded->role === 'super_admin') {
-                // Super admin can specify stadium_id or we use a default
                 $requestedStadiumId = (int)($_GET['stadium_id'] ?? 0);
                 
                 if ($requestedStadiumId > 0) {
                     $stadiumId = $requestedStadiumId;
                 } else {
-                    // Get first available stadium as fallback
+                    // Fallback: use first available stadium
                     try {
-                        $stmt = $this->guestRepository->db->prepare("SELECT id FROM stadiums WHERE is_active = 1 LIMIT 1");
+                        $db = \Hospitality\Config\Database::getInstance()->getConnection();
+                        $stmt = $db->prepare("SELECT id FROM stadiums WHERE is_active = 1 LIMIT 1");
                         $stmt->execute();
                         $stadiumId = $stmt->fetchColumn();
                         
@@ -201,6 +205,7 @@ class GuestController {
                             return;
                         }
                     } catch (Exception $e) {
+                        Logger::error('Failed to get stadium for quick search', ['error' => $e->getMessage()]);
                         $this->sendError('Failed to determine stadium context', [], 500);
                         return;
                     }
@@ -215,18 +220,28 @@ class GuestController {
             // Get assigned rooms for hostess
             $roomIds = null;
             if ($decoded->role === 'hostess') {
-                $stmt = $this->guestRepository->db->prepare("
-                    SELECT room_id FROM user_room_assignments 
-                    WHERE user_id = ? AND is_active = 1
-                ");
-                $stmt->execute([$decoded->user_id]);
-                $roomIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-                
-                if (empty($roomIds)) {
-                    $this->sendSuccess([
-                        'suggestions' => [],
-                        'message' => 'No rooms assigned'
+                try {
+                    $db = \Hospitality\Config\Database::getInstance()->getConnection();
+                    $stmt = $db->prepare("
+                        SELECT room_id FROM user_room_assignments 
+                        WHERE user_id = ? AND is_active = 1
+                    ");
+                    $stmt->execute([$decoded->user_id]);
+                    $roomIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+                    
+                    if (empty($roomIds)) {
+                        $this->sendSuccess([
+                            'suggestions' => [],
+                            'message' => 'No rooms assigned'
+                        ]);
+                        return;
+                    }
+                } catch (Exception $e) {
+                    Logger::error('Failed to get hostess rooms for quick search', [
+                        'error' => $e->getMessage(),
+                        'user_id' => $decoded->user_id
                     ]);
+                    $this->sendError('Failed to get assigned rooms', [], 500);
                     return;
                 }
             }
@@ -241,7 +256,8 @@ class GuestController {
         } catch (Exception $e) {
             Logger::error('Quick search failed', [
                 'error' => $e->getMessage(),
-                'user_id' => $decoded->user_id ?? null
+                'user_id' => $decoded->user_id ?? null,
+                'query' => $query ?? null
             ]);
 
             $this->sendError('Quick search failed', [], 500);
@@ -265,16 +281,27 @@ class GuestController {
                 return;
             }
 
-            // For hostess, check if guest is in assigned rooms
+            // For hostess, check if guest is in assigned rooms - FIX: Access DB correctly
             if ($decoded->role === 'hostess') {
-                $stmt = $this->guestRepository->db->prepare("
-                    SELECT 1 FROM user_room_assignments ura 
-                    WHERE ura.user_id = ? AND ura.room_id = ? AND ura.is_active = 1
-                ");
-                $stmt->execute([$decoded->user_id, $guest['room_id']]);
-                
-                if (!$stmt->fetch()) {
-                    $this->sendError('Access denied to this guest', [], 403);
+                try {
+                    $db = \Hospitality\Config\Database::getInstance()->getConnection();
+                    $stmt = $db->prepare("
+                        SELECT 1 FROM user_room_assignments ura 
+                        WHERE ura.user_id = ? AND ura.room_id = ? AND ura.is_active = 1
+                    ");
+                    $stmt->execute([$decoded->user_id, $guest['room_id']]);
+                    
+                    if (!$stmt->fetch()) {
+                        $this->sendError('Access denied to this guest', [], 403);
+                        return;
+                    }
+                } catch (Exception $e) {
+                    Logger::error('Failed to check hostess room access', [
+                        'error' => $e->getMessage(),
+                        'user_id' => $decoded->user_id,
+                        'guest_id' => $id
+                    ]);
+                    $this->sendError('Failed to verify access permissions', [], 500);
                     return;
                 }
             }
@@ -286,7 +313,9 @@ class GuestController {
         } catch (Exception $e) {
             Logger::error('Failed to get guest details', [
                 'guest_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
             ]);
 
             $this->sendError('Failed to get guest details', [], 500);
@@ -296,6 +325,21 @@ class GuestController {
     // =====================================================
     // UTILITY METHODS
     // =====================================================
+
+    /**
+     * Legge e decodifica input JSON dalla request
+     */
+    private function getJsonInput(): array {
+        $json = file_get_contents('php://input');
+        $data = json_decode($json, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $this->sendError('Invalid JSON input', ['json_error' => json_last_error_msg()], 400);
+            exit;
+        }
+
+        return $data ?? [];
+    }
 
     private function sendSuccess(array $data): void {
         http_response_code(200);
@@ -314,5 +358,296 @@ class GuestController {
             'details' => $details,
             'timestamp' => date('c')
         ], JSON_PRETTY_PRINT);
+    }
+
+    /**
+     * POST /api/guests/{id}/checkin
+     * Check-in ospite
+     */
+    public function checkin(int $id): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            // Solo hostess  + super_admin per testing possono fare check-in
+            if ($decoded->role !== 'hostess' && $decoded->role !== 'super_admin') {
+                $this->sendError('Only hostess and super admin can perform check-ins', [], 403);
+                return;
+            }
+
+            $input = $this->getJsonInput();
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+
+            if (!$stadiumId) {
+                $this->sendError('Stadium context required', [], 400);
+                return;
+            }
+
+            // Validazioni base
+            if (!Validator::validateId($id)) {
+                $this->sendError('Invalid guest ID', [], 422);
+                return;
+            }
+
+            // Esegui check-in
+            $result = $this->checkinService->checkinGuest(
+                $id, 
+                $decoded->user_id, 
+                $stadiumId, 
+                [
+                    'companions' => $input['companions'] ?? 0,
+                    'notes' => $input['notes'] ?? null
+                ]
+            );
+
+            $this->sendSuccess($result);
+
+        } catch (Exception $e) {
+            Logger::error('Check-in request failed', [
+                'guest_id' => $id,
+                'user_id' => $decoded->user_id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            // Errori business specifici
+            if (str_contains($e->getMessage(), 'already checked in')) {
+                $this->sendError($e->getMessage(), [], 409); // Conflict
+            } elseif (str_contains($e->getMessage(), 'does not have access')) {
+                $this->sendError($e->getMessage(), [], 403); // Forbidden
+            } elseif (str_contains($e->getMessage(), 'not found')) {
+                $this->sendError($e->getMessage(), [], 404); // Not Found
+            } else {
+                $this->sendError('Check-in failed', [], 500);
+            }
+        }
+    }
+
+    /**
+     * POST /api/guests/{id}/checkout
+     * Check-out ospite
+     */
+    public function checkout(int $id): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            // Solo hostess  + super_admin per testing possono fare check-in
+            if ($decoded->role !== 'hostess' && $decoded->role !== 'super_admin') {
+                $this->sendError('Only hostess and super admin can perform check-ins', [], 403);
+                return;
+            }
+
+            $input = $this->getJsonInput();
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+
+            if (!$stadiumId) {
+                $this->sendError('Stadium context required', [], 400);
+                return;
+            }
+
+            // Validazioni base
+            if (!Validator::validateId($id)) {
+                $this->sendError('Invalid guest ID', [], 422);
+                return;
+            }
+
+            // Esegui check-out
+            $result = $this->checkinService->checkoutGuest(
+                $id, 
+                $decoded->user_id, 
+                $stadiumId, 
+                [
+                    'notes' => $input['notes'] ?? null
+                ]
+            );
+
+            $this->sendSuccess($result);
+
+        } catch (Exception $e) {
+            Logger::error('Check-out request failed', [
+                'guest_id' => $id,
+                'user_id' => $decoded->user_id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            // Errori business specifici
+            if (str_contains($e->getMessage(), 'not currently checked in')) {
+                $this->sendError($e->getMessage(), [], 409); // Conflict
+            } elseif (str_contains($e->getMessage(), 'does not have access')) {
+                $this->sendError($e->getMessage(), [], 403); // Forbidden
+            } elseif (str_contains($e->getMessage(), 'not found')) {
+                $this->sendError($e->getMessage(), [], 404); // Not Found
+            } else {
+                $this->sendError('Check-out failed', [], 500);
+            }
+        }
+    }
+
+    /**
+     * GET /api/guests/{id}/access-history
+     * Storico accessi ospite
+     */
+    public function accessHistory(int $id): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+
+            if (!$stadiumId) {
+                $this->sendError('Stadium context required', [], 400);
+                return;
+            }
+
+            // Validazioni base
+            if (!Validator::validateId($id)) {
+                $this->sendError('Invalid guest ID', [], 422);
+                return;
+            }
+
+            // Ottieni storico
+            $result = $this->checkinService->getGuestAccessHistory(
+                $id, 
+                $decoded->user_id, 
+                $stadiumId
+            );
+
+            $this->sendSuccess($result);
+
+        } catch (Exception $e) {
+            Logger::error('Access history request failed', [
+                'guest_id' => $id,
+                'user_id' => $decoded->user_id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            if (str_contains($e->getMessage(), 'Access denied')) {
+                $this->sendError($e->getMessage(), [], 403);
+            } elseif (str_contains($e->getMessage(), 'not found')) {
+                $this->sendError($e->getMessage(), [], 404);
+            } else {
+                $this->sendError('Failed to get access history', [], 500);
+            }
+        }
+    }
+
+    /**
+     * GET /api/guests/{id}/status
+     * Stato attuale ospite (per UI real-time)
+     */
+    public function status(int $id): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+
+            if (!$stadiumId) {
+                $this->sendError('Stadium context required', [], 400);
+                return;
+            }
+
+            // Validazioni base
+            if (!Validator::validateId($id)) {
+                $this->sendError('Invalid guest ID', [], 422);
+                return;
+            }
+
+            // Per hostess, verifica accesso alla sala
+            if ($decoded->role === 'hostess') {
+                $guestAccessRepo = new GuestAccessRepository();
+                if (!$guestAccessRepo->canHostessAccessGuest($decoded->user_id, $id, $stadiumId)) {
+                    $this->sendError('Access denied to this guest', [], 403);
+                    return;
+                }
+            }
+
+            // Ottieni stato attuale
+            $result = $this->checkinService->getGuestCurrentStatus($id, $stadiumId);
+
+            $this->sendSuccess($result);
+
+        } catch (Exception $e) {
+            Logger::error('Guest status request failed', [
+                'guest_id' => $id,
+                'user_id' => $decoded->user_id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            if (str_contains($e->getMessage(), 'not found')) {
+                $this->sendError($e->getMessage(), [], 404);
+            } else {
+                $this->sendError('Failed to get guest status', [], 500);
+            }
+        }
+    }
+
+    /**
+     * GET /api/guests/checkin-stats
+     * Statistiche check-in per hostess/admin
+     */
+    public function checkinStats(): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+            $roomId = $_GET['room_id'] ?? null;
+            $date = $_GET['date'] ?? date('Y-m-d');
+
+            if (!$stadiumId) {
+                $this->sendError('Stadium context required', [], 400);
+                return;
+            }
+
+            // Per hostess, limitiamo alle proprie sale
+            if ($decoded->role === 'hostess' && !$roomId) {
+                // Ottieni prima sala assegnata come default
+                $db = \Hospitality\Config\Database::getInstance()->getConnection();
+                $stmt = $db->prepare("
+                    SELECT room_id FROM user_room_assignments 
+                    WHERE user_id = ? AND is_active = 1 
+                    LIMIT 1
+                ");
+                $stmt->execute([$decoded->user_id]);
+                $roomId = $stmt->fetchColumn();
+
+                if (!$roomId) {
+                    $this->sendSuccess([
+                        'message' => 'No rooms assigned to hostess',
+                        'stats' => [
+                            'total_checkins' => 0,
+                            'total_checkouts' => 0,
+                            'unique_guests' => 0
+                        ]
+                    ]);
+                    return;
+                }
+            }
+
+            // Ottieni statistiche
+            $stats = $this->checkinService->getCheckinStats(
+                $stadiumId, 
+                $roomId ? (int)$roomId : null, 
+                $date
+            );
+
+            $this->sendSuccess([
+                'stats' => $stats,
+                'filters' => [
+                    'stadium_id' => $stadiumId,
+                    'room_id' => $roomId,
+                    'date' => $date
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            Logger::error('Check-in stats request failed', [
+                'user_id' => $decoded->user_id ?? null,
+                'error' => $e->getMessage()
+            ]);
+
+            $this->sendError('Failed to get check-in statistics', [], 500);
+        }
     }
 }

@@ -83,9 +83,32 @@ class TenantMiddleware {
             return null;
         }
 
-        // Super admin può richiedere stadium specifico
+        // Super admin può richiedere stadium specifico o usare il primo disponibile
         if ($currentUser['role'] === 'super_admin') {
-            return $requestedStadiumId;
+            // Se specificato un stadium_id nella query, usalo
+            if ($requestedStadiumId && $requestedStadiumId > 0) {
+                return $requestedStadiumId;
+            }
+            
+            // Se super admin ha stadium_id nel token (non null), usalo
+            if ($currentUser['stadium_id']) {
+                return $currentUser['stadium_id'];
+            }
+            
+            // Fallback: usa il primo stadium disponibile per super admin
+            try {
+                $db = \Hospitality\Config\Database::getInstance()->getConnection();
+                $stmt = $db->prepare("SELECT id FROM stadiums WHERE is_active = 1 ORDER BY id ASC LIMIT 1");
+                $stmt->execute();
+                $stadiumId = $stmt->fetchColumn();
+                
+                return $stadiumId ? (int)$stadiumId : null;
+            } catch (\Exception $e) {
+                \Hospitality\Utils\Logger::error('Failed to get fallback stadium for super admin', [
+                    'error' => $e->getMessage()
+                ]);
+                return null;
+            }
         }
 
         // Altri utenti possono accedere solo al proprio stadio

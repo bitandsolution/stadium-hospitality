@@ -313,52 +313,58 @@ class GuestRepository {
                 hr.name as room_name
             FROM guests g
             JOIN hospitality_rooms hr ON g.room_id = hr.id
-            WHERE g.stadium_id = :stadium_id 
+            WHERE g.stadium_id = ? 
                 AND g.is_active = 1
                 AND (
-                    g.last_name LIKE :query_prefix OR 
-                    g.first_name LIKE :query_prefix
+                    g.last_name LIKE ? OR 
+                    g.first_name LIKE ?
                 )
         ";
 
+        // Array dei parametri nell'ordine corretto
         $params = [
-            'stadium_id' => $stadiumId,
-            'query_prefix' => $query . '%'
+            $stadiumId,
+            $query . '%',
+            $query . '%'
         ];
 
         // Filtro sale se specificato
         if ($roomIds && !empty($roomIds)) {
-            $placeholders = [];
-            foreach ($roomIds as $i => $roomId) {
-                $placeholders[] = ":room_id_$i";
-                $params["room_id_$i"] = $roomId;
-            }
-            $sql .= " AND g.room_id IN (" . implode(',', $placeholders) . ")";
+            $placeholders = str_repeat('?,', count($roomIds) - 1) . '?';
+            $sql .= " AND g.room_id IN ($placeholders)";
+            $params = array_merge($params, $roomIds);
         }
 
-        $sql .= " ORDER BY g.last_name, g.first_name LIMIT :limit";
-        $params['limit'] = $limit;
+        $sql .= " ORDER BY g.last_name, g.first_name LIMIT ?";
+        $params[] = $limit;
 
-        $stmt = $this->db->prepare($sql);
-        
-        // Bind con tipi corretti
-        foreach ($params as $key => $value) {
-            if ($key === 'limit' || $key === 'stadium_id' || strpos($key, 'room_id_') === 0) {
-                $stmt->bindValue(":$key", (int)$value, PDO::PARAM_INT);
-            } else {
-                $stmt->bindValue(":$key", $value, PDO::PARAM_STR);
-            }
+        try {
+            $stmt = $this->db->prepare($sql);
+            
+            // DEBUG: Log the SQL and parameters
+            error_log("QuickSearch SQL: " . $sql);
+            error_log("QuickSearch Params: " . json_encode($params));
+            error_log("Param count: " . count($params));
+            
+            // Esegui con i parametri - SEMPLICE E PULITO
+            $stmt->execute($params);
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $executionTime = (microtime(true) - $startTime) * 1000;
+            
+            error_log("QuickSearch completed: " . count($results) . " results in " . round($executionTime, 2) . "ms");
+            
+            return [
+                'suggestions' => $results,
+                'execution_time_ms' => round($executionTime, 2)
+            ];
+            
+        } catch (Exception $e) {
+            error_log("QuickSearch SQL Error: " . $e->getMessage());
+            error_log("SQL: " . $sql);
+            error_log("Params: " . json_encode($params));
+            throw new Exception("Quick search failed: " . $e->getMessage());
         }
-
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $executionTime = (microtime(true) - $startTime) * 1000;
-        
-        return [
-            'suggestions' => $results,
-            'execution_time_ms' => round($executionTime, 2)
-        ];
     }
 
     /**
