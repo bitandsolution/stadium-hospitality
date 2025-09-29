@@ -1,0 +1,40 @@
+{
+  "name": "Hospitality Manager - Check-in System",
+  "short_name": "HospitalityApp",
+  "description": "Sistema di gestione check-in ospiti per stadi",
+  "version": "1.0.0",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#2563eb",
+  "background_color": "#ffffff",
+  "scope": "/",
+  
+  "icons": [
+    {
+      "src": "/assets/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  
+  "categories": ["business", "productivity"],
+  "lang": "it-IT",
+  
+  "shortcuts": [
+    {
+      "name": "Ricerca Ospiti",
+      "short_name": "Ricerca",
+      "description": "Trova ospiti rapidamente",
+      "url": "/?action=search",
+      "icons": [{ "src": "/assets/icons/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}

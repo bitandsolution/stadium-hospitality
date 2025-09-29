@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Sistema di gestione check-in ospiti per stadi - bitAND solution">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#2563eb">
+    <meta name="background-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Hospitality Manager">
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="/assets/icons/icon-192x192.png">
+    
+    <!-- Preconnect for better performance -->
+    <link rel="preconnect" href="https://checkindigitale.cloud">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    
+    <title>Hospitality Manager - Check-in System</title>
+    
+    <style>
+        /* Critical CSS inline for fast loading */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: #64748b;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .app-container {
+            display: none;
+            min-height: 100vh;
+        }
+        
+        .app-header {
+            background: #2563eb;
+            color: white;
+            padding: 1rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .app-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .user-menu {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .nav-tabs {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            overflow-x: auto;
+        }
+        
+        .nav-tab {
+            padding: 1rem 1.5rem;
+            background: none;
+            border: none;
+            font-size: 14px;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        
+        .nav-tab.active {
+            color: #2563eb;
+            border-bottom-color: #2563eb;
+        }
+        
+        .main-content {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        
+        .search-container {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+        
+        .guest-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .guest-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .guest-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 0.25rem;
+        }
+        
+        .guest-details {
+            display: flex;
+            gap: 1rem;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
+        .status-checked-in {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .status-checked-out {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-never-accessed {
+            background: #f1f5f9;
+            color: #475569;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
+        }
+        
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #475569;
+        }
+        
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+        
+        .offline-banner {
+            background: #fbbf24;
+            color: #92400e;
+            padding: 0.75rem 1rem;
+            text-align: center;
+            font-weight: 500;
+            display: none;
+        }
+        
+        .install-prompt {
+            background: #2563eb;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .install-btn {
+            background: white;
+            color: #2563eb;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+            margin-left: 1rem;
+            cursor: pointer;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 0.75rem;
+            }
+            
+            .guest-details {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+            
+            .header-content {
+                flex-direction: column;
+                gap: 0.5rem;
+                align-items: flex-start;
+            }
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #0f172a;
+                color: #e2e8f0;
+            }
+            
+            .search-container,
+            .guest-card {
+                background: #1e293b;
+                border-color: #334155;
+            }
+            
+            .search-box {
+                background: #334155;
+                border-color: #475569;
+                color: #e2e8f0;
+            }
+            
+            .nav-tabs {
+                background: #1e293b;
+                border-color: #334155;
+            }
+        }
+        
+        /* PWA specific styles */
+        @media (display-mode: standalone) {
+            .app-header {
+                padding-top: env(safe-area-inset-top, 1rem);
+                padding-top: calc(env(safe-area-inset-top, 1rem) + 1rem);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Caricamento...</div>
+    </div>
+    
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="offline-banner">
+        ⚠️ Modalità offline - Alcune funzioni potrebbero essere limitate
+    </div>
+    
+    <!-- Install Prompt -->
+    <div id="install-prompt" class="install-prompt">
+        📱 Installa l'app per un accesso più veloce!
+        <button id="install-btn" class="install-btn">Installa</button>
+        <button id="dismiss-install" class="install-btn" style="background: transparent; color: white;">Chiudi</button>
+    </div>
+    
+    <!-- Main App -->
+    <div id="app-container" class="app-container">
+        <!-- App Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1 class="app-title">
+                    🏟️ Hospitality Manager
+                </h1>
+                <div class="user-menu">
+                    <span id="user-name">Caricamento...</span>
+                    <button id="logout-btn" class="btn btn-secondary" style="padding: 6px 12px;">Esci</button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="search">🔍 Ricerca</button>
+            <button class="nav-tab" data-tab="checkin">✅ Check-in</button>
+            <button class="nav-tab" data-tab="stats">📊 Statistiche</button>
+            <button class="nav-tab" data-tab="history">📋 Storico</button>
+        </nav>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Search Tab -->
+            <div id="search-tab" class="tab-content active">
+                <div class="search-container">
+                    <input 
+                        type="text" 
+                        id="search-input" 
+                        class="search-box" 
+                        placeholder="Cerca ospite per nome, cognome o azienda..."
+                        autocomplete="off"
+                    >
+                </div>
+                
+                <div id="search-results"></div>
+                <div id="quick-suggestions" style="display: none;"></div>
+            </div>
+            
+            <!-- Check-in Tab -->
+            <div id="checkin-tab" class="tab-content" style="display: none;">
+                <div class="search-container">
+                    <h2>Check-in Rapido</h2>
+                    <p>Seleziona un ospite dalla ricerca per effettuare il check-in</p>
+                </div>
+            </div>
+            
+            <!-- Stats Tab -->
+            <div id="stats-tab" class="tab-content" style="display: none;">
+                <div class="search-container">
+                    <h2>Statistiche Accessi</h2>
+                    <div id="stats-content">Caricamento statistiche...</div>
+                </div>
+            </div>
+            
+            <!-- History Tab -->
+            <div id="history-tab" class="tab-content" style="display: none;">
+                <div class="search-container">
+                    <h2>Storico Accessi</h2>
+                    <div id="history-content">Seleziona un ospite per vedere lo storico</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- PWA App Logic -->
+    <script>
+        // PWA App State
+        let appState = {
+            isOnline: navigator.onLine,
+            currentUser: null,
+            searchCache: new Map(),
+            installPrompt: null,
+            currentTab: 'search'
+        };
+        
+        // API Base URL
+        const API_BASE = 'https://checkindigitale.cloud/api';
+        
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', initializeApp);
+        
+        async function initializeApp() {
+            console.log('🚀 Initializing Hospitality Manager PWA');
+            
+            // Register Service Worker
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registration = await navigator.serviceWorker.register('/sw.js');
+                    console.log('✅ Service Worker registered:', registration);
+                    
+                    // Handle updates
+                    registration.addEventListener('updatefound', () => {
+                        console.log('🔄 New version available');
+                    });
+                } catch (error) {
+                    console.error('❌ Service Worker registration failed:', error);
+                }
+            }
+            
+            // Setup offline/online listeners
+            window.addEventListener('online', handleOnline);
+            window.addEventListener('offline', handleOffline);
+            
+            // Setup install prompt
+            window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+            
+            // Load user and initialize UI
+            await loadCurrentUser();
+            setupEventListeners();
+            loadInitialData();
+            
+            // Hide loading screen
+            document.getElementById('loading-screen').style.display = 'none';
+            document.getElementById('app-container').style.display = 'flex';
+        }
+        
+        // Load current user from API
+        async function loadCurrentUser() {
+            try {
+                const token = localStorage.getItem('auth_token');
+                if (!token) {
+                    redirectToLogin();
+                    return;
+                }
+                
+                const response = await apiCall('/auth/me');
+                if (response.success) {
+                    appState.currentUser = response.data.user;
+                    document.getElementById('user-name').textContent = 
+                        response.data.user.full_name || response.data.user.username;
+                } else {
+                    redirectToLogin();
+                }
+            } catch (error) {
+                console.error('Failed to load user:', error);
+                if (!appState.isOnline) {
+                    // Try to get cached user data
+                    const cachedUser = localStorage.getItem('cached_user');
+                    if (cachedUser) {
+                        appState.currentUser = JSON.parse(cachedUser);
+                        document.getElementById('user-name').textContent = 
+                            appState.currentUser.full_name || appState.currentUser.username;
+                    }
+                }
+            }
+        }
+        
+        // API call wrapper with offline support
+        async function apiCall(endpoint, options = {}) {
+            const token = localStorage.getItem('auth_token');
+            const url = `${API_BASE}${endpoint}`;
+            
+            const config = {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                ...options
+            };
+            
+            try {
+                const response = await fetch(url, config);
+                const data = await response.json();
+                
+                // Cache successful responses
+                if (response.ok && config.method === 'GET') {
+                    appState.searchCache.set(endpoint, data);
+                }
+                
+                return data;
+            } catch (error) {
+                console.log('API call failed, checking cache:', endpoint);
+                
+                // Try cache if offline
+                if (!appState.isOnline && appState.searchCache.has(endpoint)) {
+                    return appState.searchCache.get(endpoint);
+                }
+                
+                throw error;
+            }
+        }
+        
+        // Setup event listeners
+        function setupEventListeners() {
+            // Tab switching
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+            });
+            
+            // Search functionality
+            const searchInput = document.getElementById('search-input');
+            searchInput.addEventListener('input', debounce(handleSearch, 300));
+            searchInput.addEventListener('focus', showQuickSuggestions);
+            
+            // Logout
+            document.getElementById('logout-btn').addEventListener('click', logout);
+            
+            // Install prompt
+            document.getElementById('install-btn').addEventListener('click', installApp);
+            document.getElementById('dismiss-install').addEventListener('click', dismissInstall);
+        }
+        
+        // Tab switching
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === tabName);
+            });
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = content.id === `${tabName}-tab` ? 'block' : 'none';
+            });
+            
+            appState.currentTab = tabName;
+            
+            // Load tab-specific data
+            if (tabName === 'stats') {
+                loadStatistics();
+            }
+        }
+        
+        // Search functionality
+        async function handleSearch(event) {
+            const query = event.target.value.trim();
+            
+            if (query.length < 2) {
+                document.getElementById('search-results').innerHTML = '';
+                return;
+            }
+            
+            try {
+                const response = await apiCall(`/guests/search?q=${encodeURIComponent(query)}&limit=20`);
+                
+                if (response.success) {
+                    displaySearchResults(response.data.guests);
+                } else {
+                    displayError('Errore nella ricerca');
+                }
+            } catch (error) {
+                displayError('Ricerca non disponibile offline');
+            }
+        }
+        
+        // Display search results
+        function displaySearchResults(guests) {
+            const container = document.getElementById('search-results');
+            
+            if (!guests || guests.length === 0) {
+                container.innerHTML = '<div class="search-container">Nessun ospite trovato</div>';
+                return;
+            }
+            
+            const html = guests.map(guest => `
+                <div class="guest-card" onclick="selectGuest(${guest.id})">
+                    <div class="guest-name">${guest.full_name}</div>
+                    <div class="guest-details">
+                        <span>🏠 ${guest.room_name}</span>
+                        <span>🪑 Tavolo ${guest.table_number}</span>
+                        <span class="status-badge status-${guest.access_status.replace('_', '-')}">${getStatusText(guest.access_status)}</span>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" onclick="event.stopPropagation(); quickCheckin(${guest.id})">
+                            ${guest.access_status === 'checked_in' ? '↩️ Check-out' : '✅ Check-in'}
+                        </button>
+                        <button class="btn btn-secondary" onclick="event.stopPropagation(); viewHistory(${guest.id})">📋 Storico</button>
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = html;
+        }
+        
+        // Quick check-in/out
+        async function quickCheckin(guestId) {
+            try {
+                // Get current status first
+                const statusResponse = await apiCall(`/guests/${guestId}/status`);
+                
+                if (!statusResponse.success) {
+                    alert('Errore nel recupero stato ospite');
+                    return;
+                }
+                
+                const currentStatus = statusResponse.data.current_status;
+                const endpoint = currentStatus === 'checked_in' ? 'checkout' : 'checkin';
+                const action = currentStatus === 'checked_in' ? 'Check-out' : 'Check-in';
+                
+                const notes = prompt(`Note per ${action} (opzionale):`);
+                
+                const response = await apiCall(`/guests/${guestId}/${endpoint}`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        notes: notes || `${action} rapido da PWA`,
+                        companions: currentStatus === 'checked_in' ? 0 : 1
+                    })
+                });
+                
+                if (response.success) {
+                    alert(`${action} completato con successo!`);
+                    // Refresh search results
+                    document.getElementById('search-input').dispatchEvent(new Event('input'));
+                } else {
+                    alert(`Errore durante ${action}: ${response.message}`);
+                }
+            } catch (error) {
+                alert('Operazione non disponibile offline');
+            }
+        }
+        
+        // Utility functions
+        function getStatusText(status) {
+            const statusMap = {
+                'checked_in': 'Presente',
+                'checked_out': 'Uscito',
+                'never_accessed': 'Mai entrato'
+            };
+            return statusMap[status] || status;
+        }
+        
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+        
+        // Offline/Online handlers
+        function handleOnline() {
+            appState.isOnline = true;
+            document.getElementById('offline-banner').style.display = 'none';
+            console.log('📶 App is online');
+        }
+        
+        function handleOffline() {
+            appState.isOnline = false;
+            document.getElementById('offline-banner').style.display = 'block';
+            console.log('📵 App is offline');
+        }
+        
+        // Install prompt
+        function handleInstallPrompt(event) {
+            event.preventDefault();
+            appState.installPrompt = event;
+            
+            // Show install prompt after 30 seconds if not already installed
+            setTimeout(() => {
+                if (!window.matchMedia('(display-mode: standalone)').matches) {
+                    document.getElementById('install-prompt').style.display = 'block';
+                }
+            }, 30000);
+        }
+        
+        async function installApp() {
+            if (appState.installPrompt) {
+                appState.installPrompt.prompt();
+                const choiceResult = await appState.installPrompt.userChoice;
+                
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('✅ App installed');
+                }
+                
+                appState.installPrompt = null;
+                document.getElementById('install-prompt').style.display = 'none';
+            }
+        }
+        
+        function dismissInstall() {
+            document.getElementById('install-prompt').style.display = 'none';
+        }
+        
+        // Load statistics
+        async function loadStatistics() {
+            try {
+                const response = await apiCall('/guests/checkin-stats');
+                if (response.success) {
+                    document.getElementById('stats-content').innerHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                            <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 2rem; font-weight: bold; color: #059669;">${response.data.stats.total_checkins || 0}</div>
+                                <div style="color: #64748b;">Check-in oggi</div>
+                            </div>
+                            <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 2rem; font-weight: bold; color: #dc2626;">${response.data.stats.total_checkouts || 0}</div>
+                                <div style="color: #64748b;">Check-out oggi</div>
+                            </div>
+                            <div style="background: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 2rem; font-weight: bold; color: #2563eb;">${response.data.stats.unique_guests || 0}</div>
+                                <div style="color: #64748b;">Ospiti unici</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('stats-content').innerHTML = 'Statistiche non disponibili offline';
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('cached_user');
+            redirectToLogin();
+        }
+        
+        function redirectToLogin() {
+            window.location.href = '/login.html';
+        }
+        
+        function displayError(message) {
+            document.getElementById('search-results').innerHTML = `
+                <div class="search-container" style="color: #dc2626;">
+                    ⚠️ ${message}
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

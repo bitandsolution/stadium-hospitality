@@ -9,6 +9,10 @@ Header always set Access-Control-Allow-Origin "*"
 Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
 Header always set Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With"
 
+# Fix Authorization header per Apache
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Handle OPTIONS
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ $1 [R=200,L]
@@ -17,3 +21,18 @@ RewriteRule ^(.*)$ $1 [R=200,L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ index.php [QSA,L]
+
+# PWA Support
+Header always set Cache-Control "public, max-age=31536000" "expr=%{REQUEST_URI} =~ m#\.(ico|css|js|gif|jpe?g|png|svg|woff2?)$#"
+
+# Service Worker
+<Files "sw.js">
+    Header set Cache-Control "public, max-age=0"
+    Header set Service-Worker-Allowed "/"
+</Files>
+
+# Manifest
+<Files "manifest.json">
+    Header set Content-Type "application/manifest+json"
+    Header set Cache-Control "public, max-age=86400"
+</Files>

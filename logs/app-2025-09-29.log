@@ -1,0 +1,22 @@
+[2025-09-29 11:08:29] ERROR: Stadium creation failed {"error":"SQLSTATE[42S22]: Column not found: 1054 Unknown column 'address' in 'field list'","user_id":1}
+[2025-09-29 11:12:36] INFO: Stadium created successfully {"stadium_id":3,"stadium_name":"Stadio Test"}
+[2025-09-29 11:24:39] WARNING: Login failed - invalid password {"user_id":9,"username":"admin_test","ip":"95.110.134.68"}
+[2025-09-29 11:24:39] ERROR: Login process failed {"username":"admin_test","stadium_id":3,"error":"Invalid credentials","ip":"95.110.134.68"}
+[2025-09-29 11:24:39] WARNING: Login attempt failed {"username":"admin_test","stadium_id":3,"error":"Invalid credentials","ip":"95.110.134.68"}
+[2025-09-29 11:25:46] WARNING: Login failed - invalid password {"user_id":9,"username":"admin_test","ip":"95.110.134.68"}
+[2025-09-29 11:25:46] ERROR: Login process failed {"username":"admin_test","stadium_id":3,"error":"Invalid credentials","ip":"95.110.134.68"}
+[2025-09-29 11:25:46] WARNING: Login attempt failed {"username":"admin_test","stadium_id":3,"error":"Invalid credentials","ip":"95.110.134.68"}
+[2025-09-29 11:27:36] ERROR: Room creation failed {"error":"SQLSTATE[42S22]: Column not found: 1054 Unknown column 'location_code' in 'field list'","user_id":9}
+[2025-09-29 11:32:05] INFO: Room created successfully {"room_id":8,"name":"Hospitality VIP 1"}
+[2025-09-29 11:32:38] ERROR: Room creation failed {"error":"Room name already exists in this stadium","user_id":9}
+[2025-09-29 11:32:47] DEBUG: Super admin access granted {"user_id":1,"requested_stadium_id":3}
+[2025-09-29 11:32:54] DEBUG: Super admin access granted {"user_id":1,"requested_stadium_id":1}
+[2025-09-29 11:32:59] DEBUG: Super admin access granted {"user_id":1,"requested_stadium_id":1}
+[2025-09-29 11:33:04] DEBUG: Super admin access granted {"user_id":1,"requested_stadium_id":1}
+[2025-09-29 14:17:45] WARNING: Login failed - invalid password {"user_id":9,"username":"admin_test","ip":"95.110.134.68"}
+[2025-09-29 14:17:45] ERROR: Login process failed {"username":"admin_test","stadium_id":3,"error":"Invalid credentials","ip":"95.110.134.68"}
+[2025-09-29 14:17:45] WARNING: Login attempt failed {"username":"admin_test","stadium_id":3,"error":"Invalid credentials","ip":"95.110.134.68"}
+[2025-09-29 14:48:20] INFO: User created successfully {"user_id":10,"username":"hostess_maria","role":"hostess"}
+[2025-09-29 16:29:31] INFO: Event created successfully {"event_id":4,"name":"Test Match"}
+[2025-09-29 16:30:38] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}
+[2025-09-29 16:32:13] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}

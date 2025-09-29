@@ -16,6 +16,7 @@
 
 namespace Hospitality\Controllers;
 
+use Hospitality\Services\UserService;
 use Hospitality\Repositories\UserRepository;
 use Hospitality\Middleware\AuthMiddleware;
 use Hospitality\Middleware\RoleMiddleware;
@@ -25,51 +26,43 @@ use Hospitality\Utils\Logger;
 use Exception;
 
 class UserController {
+    private UserService $userService;
     private UserRepository $userRepository;
 
     public function __construct() {
+        $this->userService = new UserService();
         $this->userRepository = new UserRepository();
     }
 
-    /**
-     * GET /api/users
-     * Lista utenti (filtrata per ruolo e stadio)
-     */
     public function index(): void {
         try {
-            // Require authentication
             if (!AuthMiddleware::handle()) return;
+            if (!RoleMiddleware::requireRole('stadium_admin')) return;
 
-            // Get query parameters
             $stadiumId = $_GET['stadium_id'] ?? null;
             $role = $_GET['role'] ?? null;
 
-            // Validate stadium access
-            if ($stadiumId && !TenantMiddleware::validateStadiumAccess((int)$stadiumId)) return;
-
-            // Get stadium ID for query (with tenant filtering)
-            $queryStadiumId = TenantMiddleware::getStadiumIdForQuery($stadiumId ? (int)$stadiumId : null);
-
-            if ($queryStadiumId) {
-                $users = $this->userRepository->findByStadium($queryStadiumId, $role);
-                
-                // Remove sensitive data
-                foreach ($users as &$user) {
-                    unset($user['password_hash']);
-                }
-                
-                $this->sendSuccess([
-                    'users' => $users,
-                    'total' => count($users),
-                    'filters' => [
-                        'stadium_id' => $queryStadiumId,
-                        'role' => $role
-                    ]
-                ]);
+            $currentUser = $GLOBALS['current_user'];
+            
+            if ($currentUser['role'] !== 'super_admin') {
+                $stadiumId = $currentUser['stadium_id'];
             } else {
-                // Super admin without stadium filter - not implemented yet
-                $this->sendError('Multi-stadium listing not yet implemented', [], 501);
+                if (!$stadiumId) {
+                    $this->sendError('stadium_id parameter required for super_admin', [], 422);
+                    return;
+                }
             }
+
+            if (!TenantMiddleware::validateStadiumAccess((int)$stadiumId)) return;
+
+            $users = $this->userService->getUsersByStadium((int)$stadiumId, $role);
+
+            $this->sendSuccess([
+                'users' => $users,
+                'total' => count($users),
+                'stadium_id' => (int)$stadiumId,
+                'filters' => ['role' => $role]
+            ]);
 
         } catch (Exception $e) {
             Logger::error('Failed to list users', ['error' => $e->getMessage()]);
@@ -77,92 +70,153 @@ class UserController {
         }
     }
 
-    /**
-     * GET /api/users/{id}
-     * Dettagli utente specifico
-     */
     public function show(int $id): void {
         try {
             if (!AuthMiddleware::handle()) return;
 
-            $user = $this->userRepository->findById($id);
-            
-            if (!$user) {
-                $this->sendError('User not found', [], 404);
-                return;
-            }
+            $user = $this->userService->getUserById($id);
 
-            // Check if current user can view this user
             if (!RoleMiddleware::canManageUser($user)) {
                 $this->sendError('Insufficient permissions to view this user', [], 403);
                 return;
             }
 
-            // Remove sensitive data
-            unset($user['password_hash']);
-
             $this->sendSuccess(['user' => $user]);
 
         } catch (Exception $e) {
-            Logger::error('Failed to get user details', [
-                'user_id' => $id,
-                'error' => $e->getMessage()
-            ]);
-            $this->sendError('Failed to retrieve user details', [], 500);
+            if ($e->getMessage() === 'User not found') {
+                $this->sendError('User not found', [], 404);
+            } else {
+                Logger::error('Failed to get user details', [
+                    'user_id' => $id,
+                    'error' => $e->getMessage()
+                ]);
+                $this->sendError('Failed to retrieve user details', [], 500);
+            }
         }
     }
 
-    /**
-     * POST /api/users
-     * Creazione nuovo utente
-     */
     public function create(): void {
+        try {
+            if (!AuthMiddleware::handle()) return;
+            if (!RoleMiddleware::requireRole('stadium_admin')) return;
+
+            $input = $this->getJsonInput();
+
+            $currentUser = $GLOBALS['current_user'];
+
+            // Stadium admin can only create in their stadium
+            if ($currentUser['role'] !== 'super_admin') {
+                $input['stadium_id'] = $currentUser['stadium_id'];
+            } else {
+                if (empty($input['stadium_id'])) {
+                    $this->sendError('stadium_id is required for super_admin', [], 422);
+                    return;
+                }
+            }
+
+            // Check if user can create this role
+            $creatableRoles = RoleMiddleware::getCreatableRoles();
+            if (!in_array($input['role'], $creatableRoles)) {
+                $this->sendError('You cannot create users with this role', [], 403);
+                return;
+            }
+
+            if (!TenantMiddleware::validateStadiumAccess($input['stadium_id'])) return;
+
+            $user = $this->userService->createUser($input);
+
+            $this->sendSuccess([
+                'message' => 'User created successfully',
+                'user' => $user
+            ], 201);
+
+        } catch (Exception $e) {
+            Logger::error('User creation failed', ['error' => $e->getMessage()]);
+            $this->sendError('User creation failed', $e->getMessage(), 400);
+        }
+    }
+
+    public function update(int $id): void {
         try {
             if (!AuthMiddleware::handle()) return;
 
             $input = $this->getJsonInput();
 
-            // Validation
-            $errors = Validator::validateRequired($input, [
-                'username', 'email', 'password', 'full_name', 'role'
-            ]);
-
-            if (!empty($input['email']) && !Validator::validateEmail($input['email'])) {
-                $errors[] = 'Invalid email format';
-            }
-
-            if (!empty($input['role']) && !Validator::validateRole($input['role'])) {
-                $errors[] = 'Invalid role';
-            }
-
-            if (!empty($input['password'])) {
-                $passwordErrors = Validator::validatePassword($input['password']);
-                $errors = array_merge($errors, $passwordErrors);
-            }
-
-            // Check if user can create this role
-            $creatableRoles = RoleMiddleware::getCreatableRoles();
-            if (!empty($input['role']) && !in_array($input['role'], $creatableRoles)) {
-                $errors[] = 'You cannot create users with this role';
-            }
-
-            if (!empty($errors)) {
-                $this->sendError('Validation failed', $errors, 422);
+            if (empty($input)) {
+                $this->sendError('No data provided for update', [], 422);
                 return;
             }
 
-            // Implementation placeholder
-            $this->sendError('User creation not yet implemented', [], 501);
+            $user = $this->userService->getUserById($id);
+
+            if (!RoleMiddleware::canManageUser($user)) {
+                $this->sendError('Insufficient permissions to update this user', [], 403);
+                return;
+            }
+
+            $updated = $this->userService->updateUser($id, $input);
+
+            if ($updated) {
+                $user = $this->userService->getUserById($id);
+                $this->sendSuccess([
+                    'message' => 'User updated successfully',
+                    'user' => $user
+                ]);
+            } else {
+                $this->sendError('No changes were made', [], 400);
+            }
 
         } catch (Exception $e) {
-            Logger::error('Failed to create user', ['error' => $e->getMessage()]);
-            $this->sendError('Failed to create user', [], 500);
+            Logger::error('User update failed', [
+                'user_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            if ($e->getMessage() === 'User not found') {
+                $this->sendError('User not found', [], 404);
+            } else {
+                $this->sendError('User update failed', $e->getMessage(), 400);
+            }
         }
     }
 
-    // =====================================================
-    // UTILITY METHODS
-    // =====================================================
+    public function delete(int $id): void {
+        try {
+            if (!AuthMiddleware::handle()) return;
+            if (!RoleMiddleware::requireRole('stadium_admin')) return;
+
+            $user = $this->userService->getUserById($id);
+
+            if (!RoleMiddleware::canManageUser($user)) {
+                $this->sendError('Insufficient permissions to delete this user', [], 403);
+                return;
+            }
+
+            $deleted = $this->userService->deactivateUser($id);
+
+            if ($deleted) {
+                $this->sendSuccess([
+                    'message' => 'User deactivated successfully',
+                    'user_id' => $id
+                ]);
+            } else {
+                $this->sendError('Failed to deactivate user', [], 400);
+            }
+
+        } catch (Exception $e) {
+            Logger::error('User deletion failed', [
+                'user_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            if ($e->getMessage() === 'User not found') {
+                $this->sendError('User not found', [], 404);
+            } else {
+                $this->sendError('User deletion failed', [], 500);
+            }
+        }
+    }
 
     private function getJsonInput(): array {
         $json = file_get_contents('php://input');
@@ -176,8 +230,8 @@ class UserController {
         return $data ?? [];
     }
 
-    private function sendSuccess(array $data): void {
-        http_response_code(200);
+    private function sendSuccess(array $data, int $code = 200): void {
+        http_response_code($code);
         echo json_encode([
             'success' => true,
             'data' => $data,
