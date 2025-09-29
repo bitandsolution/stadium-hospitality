@@ -48,7 +48,7 @@ class GuestCrudController {
 
             // Validate required fields
             $errors = Validator::validateRequired($input, [
-                'event_id', 'room_id', 'first_name', 'last_name', 'table_number'
+                'event_id', 'room_id', 'first_name', 'last_name'
             ]);
 
             if (!empty($input['contact_email']) && !Validator::validateEmail($input['contact_email'])) {

@@ -172,25 +172,26 @@ class GuestImportController {
             $sheet = $spreadsheet->getActiveSheet();
 
             // Set headers
-            $headers = ['COGNOME', 'NOME', 'RAGIONE SOCIALE', 'TELEFONO', 'EMAIL', 'SALA', 'POSTO'];
+            // Headers - ordine ottimizzato per data entry
+            $headers = ['SALA', 'TAVOLO', 'COGNOME', 'NOME', 'POSTO', 'RAGIONE SOCIALE', 'TELEFONO', 'EMAIL'];
             $sheet->fromArray([$headers], null, 'A1');
 
             // Add sample data
             $sampleData = [
-                ['Rossi', 'Mario', 'Acme Corp', '+39 333 1234567', 'mario.rossi@acme.it', 'HOSPITALITY 1', '5'],
-                ['Bianchi', 'Laura', 'Tech Solutions', '+39 333 7654321', 'laura@tech.it', 'HOSPITALITY 2', '12']
+                ['HOSPITALITY 1', '5', 'Rossi', 'Mario', '1', 'Acme Corp', '+39 333 1234567', 'mario.rossi@acme.it'],
+                ['HOSPITALITY 2', '12', 'Bianchi', 'Laura', '7', 'Tech Solutions', '+39 333 7654321', 'laura@tech.it',  ]
             ];
             $sheet->fromArray($sampleData, null, 'A2');
 
             // Style headers
-            $headerStyle = $sheet->getStyle('A1:G1');
+            $headerStyle = $sheet->getStyle('A1:H1');
             $headerStyle->getFont()->setBold(true);
             $headerStyle->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID);
             $headerStyle->getFill()->getStartColor()->setRGB('4472C4');
             $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
 
             // Auto-size columns
-            foreach (range('A', 'G') as $col) {
+            foreach (range('A', 'H') as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
 

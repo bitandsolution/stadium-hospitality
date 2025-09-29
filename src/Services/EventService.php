@@ -1,7 +1,7 @@
 <?php
 /*********************************************************
 *                                                        *
-*   FILE: src/Services/EventServices.php                 *
+*   FILE: src/Services/EventService.php                  *
 *                                                        *
 *   Author: Antonio Tartaglia - bitAND solution          *
 *   website: https://www.bitandsolution.it               *
@@ -14,90 +14,126 @@
 namespace Hospitality\Services;
 
 use Hospitality\Repositories\EventRepository;
-use Hospitality\Repositories\StadiumRepository;
 use Hospitality\Utils\Validator;
 use Hospitality\Utils\Logger;
+use Hospitality\Services\LogService;
 use Exception;
 
 class EventService {
     private EventRepository $eventRepository;
-    private StadiumRepository $stadiumRepository;
 
     public function __construct() {
         $this->eventRepository = new EventRepository();
-        $this->stadiumRepository = new StadiumRepository();
     }
 
-    public function createEvent(array $eventData): array {
-        $errors = Validator::validateRequired($eventData, ['stadium_id', 'name', 'event_date']);
-
-        if (!empty($eventData['stadium_id']) && !Validator::validateId($eventData['stadium_id'])) {
-            $errors[] = 'Invalid stadium ID';
-        }
-
-        if (!empty($eventData['event_date'])) {
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $eventData['event_date'])) {
-                $errors[] = 'Invalid date format (use YYYY-MM-DD)';
-            }
-        }
-
-        if (!empty($eventData['event_time'])) {
-            if (!preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $eventData['event_time'])) {
-                $errors[] = 'Invalid time format (use HH:MM or HH:MM:SS)';
-            }
-        }
-
-        if (!empty($eventData['capacity']) && (!is_numeric($eventData['capacity']) || $eventData['capacity'] < 1)) {
-            $errors[] = 'Capacity must be a positive number';
-        }
-
+    /**
+     * Create new event
+     */
+    public function createEvent(array $data): array {
+        // Validation
+        $errors = Validator::validateRequired($data, ['stadium_id', 'name', 'event_date']);
+        
         if (!empty($errors)) {
-            throw new Exception('Validation failed: ' . implode(', ', $errors));
+            throw new Exception(implode(', ', $errors));
         }
 
-        $stadium = $this->stadiumRepository->findById($eventData['stadium_id']);
-        if (!$stadium) {
-            throw new Exception('Stadium not found');
+        if (!Validator::validateId($data['stadium_id'])) {
+            throw new Exception('Invalid stadium_id');
         }
 
-        if ($this->eventRepository->nameExistsInStadium(
-            $eventData['name'], 
-            $eventData['stadium_id'],
-            $eventData['event_date']
+        if (!Validator::validateString($data['name'], 2, 200)) {
+            throw new Exception('Event name must be between 2 and 200 characters');
+        }
+
+        // Validate date format
+        $date = \DateTime::createFromFormat('Y-m-d', $data['event_date']);
+        if (!$date || $date->format('Y-m-d') !== $data['event_date']) {
+            throw new Exception('Invalid event_date format. Use YYYY-MM-DD');
+        }
+
+        // Validate time if provided
+        if (!empty($data['event_time'])) {
+            $time = \DateTime::createFromFormat('H:i:s', $data['event_time']);
+            if (!$time) {
+                // Try H:i format
+                $time = \DateTime::createFromFormat('H:i', $data['event_time']);
+                if ($time) {
+                    $data['event_time'] = $time->format('H:i:s');
+                } else {
+                    throw new Exception('Invalid event_time format. Use HH:MM or HH:MM:SS');
+                }
+            }
+        }
+
+        // Check for duplicate event name on same date
+        if ($this->eventRepository->nameExistsForDate(
+            $data['name'], 
+            $data['event_date'], 
+            $data['stadium_id']
         )) {
-            throw new Exception('Event with same name already exists on this date in this stadium');
+            throw new Exception('An event with this name already exists for this date');
         }
 
-        $eventId = $this->eventRepository->create($eventData);
+        $currentUser = $GLOBALS['current_user'] ?? null;
+
+        $eventId = $this->eventRepository->create($data);
 
         LogService::log(
-            'EVENT_CREATE',
-            'Event created',
+            'EVENT_CREATED',
+            "New event created: {$data['name']}",
             [
                 'event_id' => $eventId,
-                'event_name' => $eventData['name'],
-                'event_date' => $eventData['event_date'],
-                'stadium_id' => $eventData['stadium_id']
+                'stadium_id' => $data['stadium_id'],
+                'event_date' => $data['event_date'],
+                'opponent_team' => $data['opponent_team'] ?? null,
+                'competition' => $data['competition'] ?? null
             ],
-            $GLOBALS['current_user']['id'] ?? null,
-            $eventData['stadium_id'],
+            $currentUser['id'] ?? null,
+            $data['stadium_id'],
             'events',
             $eventId
         );
 
-        Logger::info('Event created successfully', [
-            'event_id' => $eventId,
-            'name' => $eventData['name']
-        ]);
-
         return $this->eventRepository->findById($eventId);
     }
 
-    public function getEventsByStadium(int $stadiumId, array $filters = []): array {
-        $filters['active_only'] = !isset($filters['include_inactive']);
-        return $this->eventRepository->findByStadium($stadiumId, $filters);
+    /**
+     * Get events by stadium
+     */
+    public function getEventsByStadium(int $stadiumId, bool $activeOnly = true): array {
+        if (!Validator::validateId($stadiumId)) {
+            throw new Exception('Invalid stadium_id');
+        }
+
+        // Use the method with stats for better UX
+        return $this->eventRepository->findByStadiumWithStats($stadiumId, $activeOnly);
     }
 
+    /**
+     * Get upcoming events
+     */
+    public function getUpcomingEvents(int $stadiumId, int $limit = 10): array {
+        if (!Validator::validateId($stadiumId)) {
+            throw new Exception('Invalid stadium_id');
+        }
+
+        return $this->eventRepository->findUpcoming($stadiumId, $limit);
+    }
+
+    /**
+     * Get past events
+     */
+    public function getPastEvents(int $stadiumId, int $limit = 10): array {
+        if (!Validator::validateId($stadiumId)) {
+            throw new Exception('Invalid stadium_id');
+        }
+
+        return $this->eventRepository->findPast($stadiumId, $limit);
+    }
+
+    /**
+     * Get event by ID
+     */
     public function getEventById(int $id): array {
         $event = $this->eventRepository->findById($id);
         
@@ -108,51 +144,91 @@ class EventService {
         return $event;
     }
 
+    /**
+     * Get event with detailed statistics
+     */
+    public function getEventWithStats(int $id): array {
+        $event = $this->getEventById($id);
+        $stats = $this->eventRepository->getEventStats($id);
+        $rooms = $this->eventRepository->getEventRooms($id);
+
+        return [
+            'event' => $event,
+            'statistics' => $stats,
+            'rooms' => $rooms
+        ];
+    }
+
+    /**
+     * Update event
+     */
     public function updateEvent(int $id, array $data): bool {
-        $event = $this->eventRepository->findById($id);
-        if (!$event) {
-            throw new Exception('Event not found');
+        $event = $this->getEventById($id);
+
+        if (isset($data['name']) && !Validator::validateString($data['name'], 2, 200)) {
+            throw new Exception('Event name must be between 2 and 200 characters');
         }
 
-        if (isset($data['event_date']) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['event_date'])) {
-            throw new Exception('Invalid date format (use YYYY-MM-DD)');
-        }
+        // Validate date if provided
+        if (isset($data['event_date'])) {
+            $date = \DateTime::createFromFormat('Y-m-d', $data['event_date']);
+            if (!$date || $date->format('Y-m-d') !== $data['event_date']) {
+                throw new Exception('Invalid event_date format. Use YYYY-MM-DD');
+            }
 
-        if (isset($data['event_time']) && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $data['event_time'])) {
-            throw new Exception('Invalid time format (use HH:MM or HH:MM:SS)');
-        }
+            // Check for duplicate on new date
+            if (isset($data['name'])) {
+                $name = $data['name'];
+            } else {
+                $name = $event['name'];
+            }
 
-        if (isset($data['capacity']) && (!is_numeric($data['capacity']) || $data['capacity'] < 1)) {
-            throw new Exception('Capacity must be a positive number');
-        }
-
-        if (isset($data['name']) && isset($data['event_date'])) {
-            $checkDate = $data['event_date'];
-        } elseif (isset($data['name'])) {
-            $checkDate = $event['event_date'];
-        } else {
-            $checkDate = null;
-        }
-
-        if (isset($data['name']) && $checkDate && $data['name'] !== $event['name']) {
-            if ($this->eventRepository->nameExistsInStadium(
-                $data['name'], 
+            if ($this->eventRepository->nameExistsForDate(
+                $name, 
+                $data['event_date'], 
                 $event['stadium_id'],
-                $checkDate,
                 $id
             )) {
-                throw new Exception('Event with same name already exists on this date');
+                throw new Exception('An event with this name already exists for this date');
             }
         }
 
+        // Validate time if provided
+        if (isset($data['event_time']) && !empty($data['event_time'])) {
+            $time = \DateTime::createFromFormat('H:i:s', $data['event_time']);
+            if (!$time) {
+                $time = \DateTime::createFromFormat('H:i', $data['event_time']);
+                if ($time) {
+                    $data['event_time'] = $time->format('H:i:s');
+                } else {
+                    throw new Exception('Invalid event_time format. Use HH:MM or HH:MM:SS');
+                }
+            }
+        }
+
+        $currentUser = $GLOBALS['current_user'] ?? null;
+        
         $updated = $this->eventRepository->update($id, $data);
 
         if ($updated) {
+            $changes = [];
+            foreach ($data as $key => $value) {
+                if (isset($event[$key]) && $event[$key] != $value) {
+                    $changes[$key] = [
+                        'old' => $event[$key],
+                        'new' => $value
+                    ];
+                }
+            }
+
             LogService::log(
-                'EVENT_UPDATE',
-                'Event details updated',
-                ['changes' => array_keys($data)],
-                $GLOBALS['current_user']['id'] ?? null,
+                'EVENT_UPDATED',
+                "Event updated: {$event['name']}",
+                [
+                    'event_id' => $id,
+                    'changes' => $changes
+                ],
+                $currentUser['id'] ?? null,
                 $event['stadium_id'],
                 'events',
                 $id
@@ -162,24 +238,22 @@ class EventService {
         return $updated;
     }
 
+    /**
+     * Delete event (soft delete)
+     */
     public function deleteEvent(int $id): bool {
-        $event = $this->eventRepository->findById($id);
-        if (!$event) {
-            throw new Exception('Event not found');
-        }
-
-        if ($event['total_guests'] > 0) {
-            throw new Exception('Cannot delete event with existing guests. Please delete or reassign guests first.');
-        }
+        $event = $this->getEventById($id);
+        
+        $currentUser = $GLOBALS['current_user'] ?? null;
 
         $deleted = $this->eventRepository->delete($id);
 
         if ($deleted) {
             LogService::log(
-                'EVENT_DELETE',
-                'Event deactivated',
-                ['event_name' => $event['name'], 'event_date' => $event['event_date']],
-                $GLOBALS['current_user']['id'] ?? null,
+                'EVENT_DELETED',
+                "Event deactivated: {$event['name']}",
+                ['event_id' => $id],
+                $currentUser['id'] ?? null,
                 $event['stadium_id'],
                 'events',
                 $id
@@ -187,19 +261,5 @@ class EventService {
         }
 
         return $deleted;
-    }
-
-    public function getEventWithStatistics(int $id): array {
-        $event = $this->getEventById($id);
-        $stats = $this->eventRepository->getEventStatistics($id);
-
-        return [
-            'event' => $event,
-            'statistics' => $stats
-        ];
-    }
-
-    public function getUpcomingEvents(int $stadiumId, int $limit = 5): array {
-        return $this->eventRepository->getUpcomingEvents($stadiumId, $limit);
     }
 }

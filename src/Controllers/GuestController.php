@@ -24,6 +24,7 @@ use Hospitality\Middleware\AuthMiddleware;
 use Hospitality\Middleware\TenantMiddleware;
 use Hospitality\Utils\Validator;
 use Hospitality\Utils\Logger;
+use Hospitality\Services\NotificationService;
 use Hospitality\Services\LogService;
 use Exception;
 
@@ -648,6 +649,184 @@ class GuestController {
             ]);
 
             $this->sendError('Failed to get check-in statistics', [], 500);
+        }
+    }
+
+    /**
+     * PUT /api/guests/{id}
+     * Update guest data (hostess can edit all fields, admin notified via email)
+     */
+    public function update(int $id): void {
+        try {
+            // Require authentication
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            $input = $this->getJsonInput();
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+
+            // Check if guest exists
+            $guestBefore = $this->guestRepository->getGuestDataForDiff($id, $stadiumId);
+            
+            if (!$guestBefore) {
+                $this->sendError('Guest not found', [], 404);
+                return;
+            }
+
+            // For hostess, verify they can edit this guest (room assignment check)
+            if ($decoded->role === 'hostess') {
+                if (!$this->guestRepository->canHostessEditGuest($id, $decoded->user_id, $stadiumId)) {
+                    $this->sendError('You do not have permission to edit this guest', [
+                        'reason' => 'Guest is not in your assigned rooms'
+                    ], 403);
+                    return;
+                }
+            }
+
+            // Validate input
+            $errors = [];
+            
+            if (isset($input['first_name']) && !Validator::validateString($input['first_name'], 1, 100)) {
+                $errors[] = 'First name must be between 1 and 100 characters';
+            }
+
+            if (isset($input['last_name']) && !Validator::validateString($input['last_name'], 1, 100)) {
+                $errors[] = 'Last name must be between 1 and 100 characters';
+            }
+
+            if (isset($input['contact_email']) && !empty($input['contact_email']) && !Validator::validateEmail($input['contact_email'])) {
+                $errors[] = 'Invalid email format';
+            }
+
+            if (isset($input['contact_phone']) && !empty($input['contact_phone']) && !Validator::validatePhone($input['contact_phone'])) {
+                $errors[] = 'Invalid phone format';
+            }
+
+            if (isset($input['vip_level']) && !in_array($input['vip_level'], ['standard', 'premium', 'vip', 'ultra_vip'])) {
+                $errors[] = 'Invalid VIP level';
+            }
+
+            if (isset($input['room_id'])) {
+                if (!Validator::validateId($input['room_id'])) {
+                    $errors[] = 'Invalid room ID';
+                } else {
+                    // For hostess, validate room is in their assigned rooms
+                    if ($decoded->role === 'hostess') {
+                        $stmt = $this->guestRepository->db->prepare("
+                            SELECT 1 FROM user_room_assignments 
+                            WHERE user_id = ? AND room_id = ? AND is_active = 1
+                        ");
+                        $stmt->execute([$decoded->user_id, $input['room_id']]);
+                        
+                        if (!$stmt->fetch()) {
+                            $errors[] = 'You can only assign guests to your assigned rooms';
+                        }
+                    }
+                }
+            }
+
+            if (!empty($errors)) {
+                $this->sendError('Validation failed', $errors, 422);
+                return;
+            }
+
+            // Prepare update data
+            $updateData = [];
+            $allowedFields = [
+                'first_name', 'last_name', 'company_name',
+                'contact_email', 'contact_phone', 'vip_level',
+                'table_number', 'seat_number', 'room_id', 'notes'
+            ];
+
+            foreach ($allowedFields as $field) {
+                if (array_key_exists($field, $input)) {
+                    $updateData[$field] = $input[$field];
+                }
+            }
+
+            if (empty($updateData)) {
+                $this->sendError('No fields to update', [], 400);
+                return;
+            }
+
+            // Perform update
+            $updated = $this->guestRepository->update($id, $updateData, $stadiumId);
+
+            if (!$updated) {
+                $this->sendError('Failed to update guest', [], 500);
+                return;
+            }
+
+            // Get updated guest data
+            $guestAfter = $this->guestRepository->getGuestDataForDiff($id, $stadiumId);
+
+            // Calculate changes for diff
+            $changes = [];
+            foreach ($updateData as $field => $newValue) {
+                $oldValue = $guestBefore[$field] ?? null;
+                
+                // Special handling for room_id - show room name
+                if ($field === 'room_id' && $oldValue != $newValue) {
+                    $changes['room_id'] = [
+                        'old' => $guestBefore['room_name'] ?? "ID: {$oldValue}",
+                        'new' => $guestAfter['room_name'] ?? "ID: {$newValue}"
+                    ];
+                } elseif ($oldValue != $newValue) {
+                    $changes[$field] = [
+                        'old' => $oldValue,
+                        'new' => $newValue
+                    ];
+                }
+            }
+
+            // Log the operation
+            LogService::log(
+                'GUEST_EDIT_HOSTESS',
+                "Guest data updated by " . ($decoded->role === 'hostess' ? 'hostess' : 'admin'),
+                [
+                    'guest_id' => $id,
+                    'fields_updated' => array_keys($updateData),
+                    'changes' => $changes
+                ],
+                $decoded->user_id,
+                $stadiumId,
+                'guests',
+                $id
+            );
+
+            // Send email notification to stadium admin (only if hostess made changes)
+            if ($decoded->role === 'hostess' && !empty($changes)) {
+                // Get hostess full name
+                $hostessUser = $this->userRepository->findById($decoded->user_id);
+                $hostessName = $hostessUser['full_name'] ?? $hostessUser['username'] ?? 'Unknown';
+
+                // Send notification
+                NotificationService::notifyGuestEdit(
+                    $id,
+                    "{$guestAfter['first_name']} {$guestAfter['last_name']}",
+                    $changes,
+                    $decoded->user_id,
+                    $hostessName,
+                    $stadiumId
+                );
+            }
+
+            // Return success with updated data
+            $this->sendSuccess([
+                'message' => 'Guest updated successfully',
+                'guest' => $guestAfter,
+                'changes_made' => count($changes),
+                'notification_sent' => $decoded->role === 'hostess' && !empty($changes)
+            ]);
+
+        } catch (Exception $e) {
+            Logger::error('Failed to update guest', [
+                'guest_id' => $id,
+                'error' => $e->getMessage(),
+                'user_id' => $decoded->user_id ?? null
+            ]);
+
+            $this->sendError('Failed to update guest', $e->getMessage(), 500);
         }
     }
 }

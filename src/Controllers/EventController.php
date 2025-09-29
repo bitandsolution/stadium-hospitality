@@ -1,7 +1,7 @@
 <?php
 /*********************************************************
 *                                                        *
-*   FILE: src/Controller/EventController.php             *
+*   FILE: src/Controllers/EventController.php            *
 *                                                        *
 *   Author: Antonio Tartaglia - bitAND solution          *
 *   website: https://www.bitandsolution.it               *
@@ -27,6 +27,10 @@ class EventController {
         $this->eventService = new EventService();
     }
 
+    /**
+     * POST /api/admin/events
+     * Create new event
+     */
     public function create(): void {
         try {
             $decoded = AuthMiddleware::handle();
@@ -36,10 +40,9 @@ class EventController {
 
             $input = $this->getJsonInput();
 
-            $currentUser = $GLOBALS['current_user'];
-
-            if ($currentUser['role'] !== 'super_admin') {
-                $input['stadium_id'] = $currentUser['stadium_id'];
+            // Set stadium_id based on role
+            if ($decoded->role !== 'super_admin') {
+                $input['stadium_id'] = $decoded->stadium_id;
             } else {
                 if (empty($input['stadium_id'])) {
                     $this->sendError('stadium_id is required for super_admin', [], 422);
@@ -66,6 +69,10 @@ class EventController {
         }
     }
 
+    /**
+     * GET /api/admin/events
+     * List events with filters
+     */
     public function index(): void {
         try {
             $decoded = AuthMiddleware::handle();
@@ -75,10 +82,9 @@ class EventController {
 
             $stadiumId = $_GET['stadium_id'] ?? null;
             
-            $currentUser = $GLOBALS['current_user'];
-
-            if ($currentUser['role'] !== 'super_admin') {
-                $stadiumId = $currentUser['stadium_id'];
+            // Stadium admin can only see own stadium
+            if ($decoded->role !== 'super_admin') {
+                $stadiumId = $decoded->stadium_id;
             } else {
                 if (!$stadiumId) {
                     $this->sendError('stadium_id parameter required for super_admin', [], 422);
@@ -88,20 +94,13 @@ class EventController {
 
             if (!TenantMiddleware::validateStadiumAccess((int)$stadiumId)) return;
 
-            $filters = [
-                'status' => $_GET['status'] ?? null,
-                'from_date' => $_GET['from_date'] ?? null,
-                'to_date' => $_GET['to_date'] ?? null,
-                'include_inactive' => isset($_GET['include_inactive'])
-            ];
-
-            $events = $this->eventService->getEventsByStadium((int)$stadiumId, $filters);
+            $includeInactive = isset($_GET['include_inactive']);
+            $events = $this->eventService->getEventsByStadium((int)$stadiumId, !$includeInactive);
 
             $this->sendSuccess([
                 'events' => $events,
                 'total' => count($events),
-                'stadium_id' => (int)$stadiumId,
-                'filters' => array_filter($filters)
+                'stadium_id' => (int)$stadiumId
             ]);
 
         } catch (Exception $e) {
@@ -110,6 +109,39 @@ class EventController {
         }
     }
 
+    /**
+     * GET /api/admin/events/upcoming
+     * Get upcoming events
+     */
+    public function upcoming(): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            if (!RoleMiddleware::requireRole('stadium_admin')) return;
+
+            $stadiumId = $_GET['stadium_id'] ?? $decoded->stadium_id;
+            $limit = min((int)($_GET['limit'] ?? 10), 50);
+
+            if (!TenantMiddleware::validateStadiumAccess((int)$stadiumId)) return;
+
+            $events = $this->eventService->getUpcomingEvents((int)$stadiumId, $limit);
+
+            $this->sendSuccess([
+                'events' => $events,
+                'total' => count($events)
+            ]);
+
+        } catch (Exception $e) {
+            Logger::error('Failed to get upcoming events', ['error' => $e->getMessage()]);
+            $this->sendError('Failed to retrieve upcoming events', [], 500);
+        }
+    }
+
+    /**
+     * GET /api/admin/events/{id}
+     * Get event details with statistics
+     */
     public function show(int $id): void {
         try {
             $decoded = AuthMiddleware::handle();
@@ -117,7 +149,7 @@ class EventController {
 
             if (!RoleMiddleware::requireRole('stadium_admin')) return;
 
-            $result = $this->eventService->getEventWithStatistics($id);
+            $result = $this->eventService->getEventWithStats($id);
 
             if (!TenantMiddleware::validateStadiumAccess($result['event']['stadium_id'])) return;
 
@@ -136,6 +168,10 @@ class EventController {
         }
     }
 
+    /**
+     * PUT /api/admin/events/{id}
+     * Update event
+     */
     public function update(int $id): void {
         try {
             $decoded = AuthMiddleware::handle();
@@ -150,6 +186,7 @@ class EventController {
                 return;
             }
 
+            // Verify access to event's stadium
             $event = $this->eventService->getEventById($id);
             if (!TenantMiddleware::validateStadiumAccess($event['stadium_id'])) return;
 
@@ -179,6 +216,10 @@ class EventController {
         }
     }
 
+    /**
+     * DELETE /api/admin/events/{id}
+     * Soft delete event
+     */
     public function delete(int $id): void {
         try {
             $decoded = AuthMiddleware::handle();
@@ -186,6 +227,7 @@ class EventController {
 
             if (!RoleMiddleware::requireRole('stadium_admin')) return;
 
+            // Verify access to event's stadium
             $event = $this->eventService->getEventById($id);
             if (!TenantMiddleware::validateStadiumAccess($event['stadium_id'])) return;
 
@@ -209,45 +251,14 @@ class EventController {
             if ($e->getMessage() === 'Event not found') {
                 $this->sendError('Event not found', [], 404);
             } else {
-                $this->sendError('Event deletion failed', $e->getMessage(), 400);
+                $this->sendError('Event deletion failed', [], 500);
             }
         }
     }
 
-    public function upcoming(): void {
-        try {
-            $decoded = AuthMiddleware::handle();
-            if (!$decoded) return;
-
-            $stadiumId = $_GET['stadium_id'] ?? null;
-            $limit = min((int)($_GET['limit'] ?? 5), 20);
-
-            $currentUser = $GLOBALS['current_user'];
-
-            if ($currentUser['role'] !== 'super_admin') {
-                $stadiumId = $currentUser['stadium_id'];
-            } else {
-                if (!$stadiumId) {
-                    $this->sendError('stadium_id parameter required for super_admin', [], 422);
-                    return;
-                }
-            }
-
-            if (!TenantMiddleware::validateStadiumAccess((int)$stadiumId)) return;
-
-            $events = $this->eventService->getUpcomingEvents((int)$stadiumId, $limit);
-
-            $this->sendSuccess([
-                'upcoming_events' => $events,
-                'total' => count($events),
-                'stadium_id' => (int)$stadiumId
-            ]);
-
-        } catch (Exception $e) {
-            Logger::error('Failed to get upcoming events', ['error' => $e->getMessage()]);
-            $this->sendError('Failed to retrieve upcoming events', [], 500);
-        }
-    }
+    // =====================================================
+    // UTILITY METHODS
+    // =====================================================
 
     private function getJsonInput(): array {
         $json = file_get_contents('php://input');

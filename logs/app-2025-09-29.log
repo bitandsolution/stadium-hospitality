@@ -20,3 +20,13 @@
 [2025-09-29 16:29:31] INFO: Event created successfully {"event_id":4,"name":"Test Match"}
 [2025-09-29 16:30:38] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}
 [2025-09-29 16:32:13] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}
+[2025-09-29 17:35:51] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}
+[2025-09-29 17:36:20] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":2,"user_role":"stadium_admin","ip":"95.110.134.68"}
+[2025-09-29 17:45:08] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}
+[2025-09-29 17:45:10] WARNING: Stadium access violation attempt {"user_id":9,"user_stadium_id":3,"requested_stadium_id":1,"user_role":"stadium_admin","ip":"95.110.134.68"}
+[2025-09-29 16:13:26] ERROR: Failed to send email {"to":"antonio@bitandsolution.it","error":"SMTP Error: Could not authenticate."}
+[2025-09-29 16:17:11] ERROR: Failed to send email {"to":"antonio@bitandsolution.it","error":"SMTP Error: Could not authenticate."}
+[2025-09-29 16:18:06] ERROR: Failed to send email {"to":"antonio@bitandsolution.it","error":"SMTP Error: Could not authenticate."}
+[2025-09-29 16:18:34] ERROR: Failed to send email {"to":"antonio@bitandsolution.it","error":"SMTP Error: Could not authenticate."}
+[2025-09-29 16:24:17] ERROR: Failed to send email {"to":"bitandsolution@gmail.com","error":"SMTP Error: Could not connect to SMTP host."}
+[2025-09-29 16:27:38] ERROR: Failed to send email {"to":"antonio@bitandsolution.it","error":"SMTP Error: Could not connect to SMTP host."}

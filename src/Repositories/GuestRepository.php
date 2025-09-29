@@ -434,4 +434,117 @@ class GuestRepository {
 
         return (int)$stmt->fetchColumn();
     }
+
+    /**
+     * Update guest data (full update for admin or limited for hostess)
+     */
+    public function update(int $guestId, array $data, ?int $stadiumId = null): bool {
+        try {
+            $fields = [];
+            $params = [];
+
+            // Campi aggiornabili
+            $allowedFields = [
+                'first_name', 'last_name', 'company_name', 
+                'contact_email', 'contact_phone', 
+                'vip_level', 'table_number', 'seat_number', 
+                'room_id', 'notes'
+            ];
+            
+            foreach ($allowedFields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $fields[] = "{$field} = ?";
+                    $params[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return false; // Nothing to update
+            }
+
+            // Add updated_at timestamp
+            $fields[] = "updated_at = NOW()";
+
+            // Build SQL
+            $sql = "UPDATE guests SET " . implode(', ', $fields) . " WHERE id = ?";
+            $params[] = $guestId;
+
+            // Add stadium filter for multi-tenant security
+            if ($stadiumId !== null) {
+                $sql .= " AND stadium_id = ?";
+                $params[] = $stadiumId;
+            }
+
+            $stmt = $this->db->prepare($sql);
+            return $stmt->execute($params);
+
+        } catch (\Exception $e) {
+            error_log("Guest update failed: " . $e->getMessage());
+            throw new \Exception("Failed to update guest: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get guest data for diff comparison
+     */
+    public function getGuestDataForDiff(int $guestId, ?int $stadiumId = null): ?array {
+        $sql = "
+            SELECT 
+                g.id,
+                g.first_name,
+                g.last_name,
+                g.company_name,
+                g.contact_email,
+                g.contact_phone,
+                g.vip_level,
+                g.table_number,
+                g.seat_number,
+                g.room_id,
+                g.notes,
+                hr.name as room_name
+            FROM guests g
+            LEFT JOIN hospitality_rooms hr ON g.room_id = hr.id
+            WHERE g.id = ? AND g.is_active = 1
+        ";
+        
+        $params = [$guestId];
+
+        if ($stadiumId !== null) {
+            $sql .= " AND g.stadium_id = ?";
+            $params[] = $stadiumId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /**
+     * Validate hostess can edit guest (check room assignment)
+     */
+    public function canHostessEditGuest(int $guestId, int $hostessId, int $stadiumId): bool {
+        try {
+            $sql = "
+                SELECT 1 
+                FROM guests g
+                INNER JOIN user_room_assignments ura 
+                    ON g.room_id = ura.room_id 
+                    AND ura.user_id = ? 
+                    AND ura.is_active = 1
+                WHERE g.id = ? 
+                    AND g.stadium_id = ? 
+                    AND g.is_active = 1
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$hostessId, $guestId, $stadiumId]);
+
+            return $stmt->rowCount() > 0;
+
+        } catch (\Exception $e) {
+            error_log("Hostess permission check failed: " . $e->getMessage());
+            return false;
+        }
+    }
 }

@@ -277,4 +277,117 @@ class UserRepository {
 
         return $stats;
     }
+    /**
+     * Find users by stadium with room assignment count
+     */
+    public function findByStadiumWithRoomCount(int $stadiumId, ?string $role = null): array {
+        $sql = "
+            SELECT u.id, u.username, u.email, u.full_name, u.role, u.phone, 
+                u.language, u.is_active, u.created_at, u.last_login,
+                s.name as stadium_name,
+                COUNT(DISTINCT ura.room_id) as assigned_rooms_count,
+                GROUP_CONCAT(DISTINCT hr.name ORDER BY hr.name SEPARATOR ', ') as assigned_rooms_names
+            FROM users u 
+            LEFT JOIN stadiums s ON u.stadium_id = s.id
+            LEFT JOIN user_room_assignments ura ON u.id = ura.user_id AND ura.is_active = 1
+            LEFT JOIN hospitality_rooms hr ON ura.room_id = hr.id AND hr.is_active = 1
+            WHERE u.stadium_id = ? AND u.is_active = 1
+        ";
+        
+        $params = [$stadiumId];
+
+        if ($role) {
+            $sql .= " AND u.role = ?";
+            $params[] = $role;
+        }
+
+        $sql .= " GROUP BY u.id, u.username, u.email, u.full_name, u.role, u.phone, 
+                u.language, u.is_active, u.created_at, u.last_login, s.name
+                ORDER BY u.role DESC, u.full_name ASC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get assigned rooms for user
+     */
+    public function getAssignedRooms(int $userId): array {
+        $stmt = $this->db->prepare("
+            SELECT 
+                hr.id,
+                hr.name,
+                hr.capacity,
+                hr.floor_level,
+                ura.assigned_at,
+                assignedBy.full_name as assigned_by_name
+            FROM user_room_assignments ura
+            JOIN hospitality_rooms hr ON ura.room_id = hr.id
+            LEFT JOIN users assignedBy ON ura.assigned_by = assignedBy.id
+            WHERE ura.user_id = ? AND ura.is_active = 1
+            ORDER BY hr.name
+        ");
+        
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Clear all room assignments for user
+     */
+    public function clearRoomAssignments(int $userId): bool {
+        $stmt = $this->db->prepare("
+            UPDATE user_room_assignments 
+            SET is_active = 0 
+            WHERE user_id = ?
+        ");
+        
+        return $stmt->execute([$userId]);
+    }
+
+    /**
+     * Assign room to user
+     */
+    public function assignRoom(int $userId, int $roomId, ?int $assignedBy = null): bool {
+        // Check if assignment already exists
+        $stmt = $this->db->prepare("
+            SELECT id FROM user_room_assignments 
+            WHERE user_id = ? AND room_id = ?
+        ");
+        $stmt->execute([$userId, $roomId]);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($existing) {
+            // Reactivate existing assignment
+            $stmt = $this->db->prepare("
+                UPDATE user_room_assignments 
+                SET is_active = 1, assigned_by = ?, assigned_at = NOW()
+                WHERE user_id = ? AND room_id = ?
+            ");
+            return $stmt->execute([$assignedBy, $userId, $roomId]);
+        } else {
+            // Create new assignment
+            $stmt = $this->db->prepare("
+                INSERT INTO user_room_assignments 
+                (user_id, room_id, assigned_by, assigned_at, is_active)
+                VALUES (?, ?, ?, NOW(), 1)
+            ");
+            return $stmt->execute([$userId, $roomId, $assignedBy]);
+        }
+    }
+
+    /**
+     * Remove room assignment
+     */
+    public function removeRoomAssignment(int $userId, int $roomId): bool {
+        $stmt = $this->db->prepare("
+            UPDATE user_room_assignments 
+            SET is_active = 0 
+            WHERE user_id = ? AND room_id = ?
+        ");
+        
+        return $stmt->execute([$userId, $roomId]);
+    }
 }
