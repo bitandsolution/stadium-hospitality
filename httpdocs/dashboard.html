@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Hospitality Manager</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .sidebar-active {
+            background-color: rgba(102, 126, 234, 0.1);
+            border-left: 3px solid #667eea;
+        }
+        
+        .stat-card {
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    
+    <!-- Main Container -->
+    <div class="flex h-screen overflow-hidden">
+        
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-64 bg-white border-r border-gray-200 flex-shrink-0">
+            
+            <!-- Logo -->
+            <div class="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+                <div class="flex items-center">
+                    <i data-lucide="building-2" class="w-8 h-8 text-purple-600 mr-2"></i>
+                    <span class="text-xl font-bold text-gray-800">HM</span>
+                </div>
+            </div>
+            
+            <!-- User Info -->
+            <div class="p-4 border-b border-gray-200">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                        <span id="userInitials" class="text-purple-600 font-semibold text-sm"></span>
+                    </div>
+                    <div class="ml-3 flex-1 min-w-0">
+                        <p id="userName" class="text-sm font-medium text-gray-900 truncate"></p>
+                        <p id="userRole" class="text-xs text-gray-500 truncate"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+                
+                <!-- Dashboard -->
+                <a href="dashboard.html" class="sidebar-active flex items-center px-3 py-2 text-sm font-medium text-gray-900 rounded-lg">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5 mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <!-- Guests -->
+                <a href="guests.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                    <i data-lucide="users" class="w-5 h-5 mr-3"></i>
+                    Ospiti
+                </a>
+                
+                <!-- Import -->
+                <a href="import.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                    <i data-lucide="upload" class="w-5 h-5 mr-3"></i>
+                    Import Excel
+                </a>
+                
+                <div class="pt-4 mt-4 border-t border-gray-200" id="adminMenu">
+                    <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                        Amministrazione
+                    </p>
+                    
+                    <!-- Events -->
+                    <a href="events.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="calendar" class="w-5 h-5 mr-3"></i>
+                        Eventi
+                    </a>
+                    
+                    <!-- Rooms -->
+                    <a href="rooms.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="door-open" class="w-5 h-5 mr-3"></i>
+                        Sale
+                    </a>
+                    
+                    <!-- Users -->
+                    <a href="users.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="user-cog" class="w-5 h-5 mr-3"></i>
+                        Utenti
+                    </a>
+                </div>
+                
+                <div class="pt-4 mt-4 border-t border-gray-200" id="superAdminMenu" style="display: none;">
+                    <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                        Super Admin
+                    </p>
+                    
+                    <!-- Stadiums -->
+                    <a href="stadiums.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="building" class="w-5 h-5 mr-3"></i>
+                        Stadi
+                    </a>
+                </div>
+                
+            </nav>
+            
+            <!-- Logout -->
+            <div class="p-4 border-t border-gray-200">
+                <button id="logoutBtn" class="flex items-center w-full px-3 py-2 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50">
+                    <i data-lucide="log-out" class="w-5 h-5 mr-3"></i>
+                    Esci
+                </button>
+            </div>
+            
+        </aside>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+                    <p class="text-sm text-gray-500" id="stadiumName">Caricamento...</p>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <!-- Notifications -->
+                    <button class="relative p-2 text-gray-400 hover:text-gray-600 focus:outline-none">
+                        <i data-lucide="bell" class="w-5 h-5"></i>
+                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                    </button>
+                    
+                    <!-- Settings -->
+                    <button class="p-2 text-gray-400 hover:text-gray-600 focus:outline-none">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Page Content -->
+            <main class="flex-1 overflow-y-auto p-6">
+                
+                <!-- Loading State -->
+                <div id="loadingState" class="text-center py-12">
+                    <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                    <p class="mt-4 text-gray-600">Caricamento dashboard...</p>
+                </div>
+                
+                <!-- Content Container -->
+                <div id="dashboardContent" class="hidden">
+                    
+                    <!-- Stats Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        
+                        <!-- Stat Card 1 - Total Guests -->
+                        <div class="stat-card bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                    <i data-lucide="users" class="w-6 h-6 text-blue-600"></i>
+                                </div>
+                                <span class="text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded">
+                                    +12%
+                                </span>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statTotalGuests">0</h3>
+                            <p class="text-sm text-gray-500 mt-1">Ospiti Totali</p>
+                        </div>
+                        
+                        <!-- Stat Card 2 - Checked In -->
+                        <div class="stat-card bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                                    <i data-lucide="check-circle" class="w-6 h-6 text-green-600"></i>
+                                </div>
+                                <span class="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                    Live
+                                </span>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statCheckedIn">0</h3>
+                            <p class="text-sm text-gray-500 mt-1">Check-in Effettuati</p>
+                        </div>
+                        
+                        <!-- Stat Card 3 - Events -->
+                        <div class="stat-card bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                                    <i data-lucide="calendar" class="w-6 h-6 text-purple-600"></i>
+                                </div>
+                                <span class="text-xs font-medium text-purple-600 bg-purple-50 px-2 py-1 rounded">
+                                    Active
+                                </span>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statEvents">0</h3>
+                            <p class="text-sm text-gray-500 mt-1">Eventi Attivi</p>
+                        </div>
+                        
+                        <!-- Stat Card 4 - Rooms -->
+                        <div class="stat-card bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                                    <i data-lucide="door-open" class="w-6 h-6 text-yellow-600"></i>
+                                </div>
+                                <span class="text-xs font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                    Total
+                                </span>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statRooms">0</h3>
+                            <p class="text-sm text-gray-500 mt-1">Sale Hospitality</p>
+                        </div>
+                        
+                    </div>
+                    
+                    <!-- Quick Actions -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        
+                        <!-- Quick Actions Card -->
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <h2 class="text-lg font-semibold text-gray-900 mb-4">Azioni Rapide</h2>
+                            <div class="space-y-3">
+                                <a href="import.html" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                                    <div class="flex items-center">
+                                        <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
+                                            <i data-lucide="upload" class="w-5 h-5 text-purple-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-900">Import Ospiti</p>
+                                            <p class="text-sm text-gray-500">Carica file Excel</p>
+                                        </div>
+                                    </div>
+                                    <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
+                                </a>
+                                
+                                <a href="guests.html?action=create" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                                    <div class="flex items-center">
+                                        <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                                            <i data-lucide="user-plus" class="w-5 h-5 text-blue-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-900">Nuovo Ospite</p>
+                                            <p class="text-sm text-gray-500">Creazione manuale</p>
+                                        </div>
+                                    </div>
+                                    <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
+                                </a>
+                                
+                                <a href="events.html?action=create" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                                    <div class="flex items-center">
+                                        <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-3">
+                                            <i data-lucide="calendar-plus" class="w-5 h-5 text-green-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-900">Nuovo Evento</p>
+                                            <p class="text-sm text-gray-500">Crea partita/evento</p>
+                                        </div>
+                                    </div>
+                                    <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
+                                </a>
+                            </div>
+                        </div>
+                        
+                        <!-- Recent Activity -->
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <h2 class="text-lg font-semibold text-gray-900 mb-4">Attività Recente</h2>
+                            <div class="space-y-4" id="recentActivity">
+                                <p class="text-sm text-gray-500 text-center py-8">Nessuna attività recente</p>
+                            </div>
+                        </div>
+                        
+                    </div>
+                    
+                    <!-- Upcoming Events -->
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold text-gray-900">Prossimi Eventi</h2>
+                            <a href="events.html" class="text-sm text-purple-600 hover:text-purple-700 font-medium">
+                                Vedi tutti →
+                            </a>
+                        </div>
+                        <div id="upcomingEvents" class="space-y-4">
+                            <p class="text-sm text-gray-500 text-center py-8">Caricamento eventi...</p>
+                        </div>
+                    </div>
+                    
+                </div>
+                
+            </main>
+            
+        </div>
+        
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/dashboard.js"></script>
+    
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+        
+        // Check authentication
+        if (!Auth.requireAuth()) {
+            // Redirect handled by requireAuth()
+        } else {
+            console.log('[MAIN] User authenticated, initializing dashboard');
+            
+            // Initialize dashboard when DOM ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    Dashboard.init();
+                });
+            } else {
+                // DOM already loaded
+                Dashboard.init();
+            }
+        }
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Debug - Hospitality Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: monospace; }
+        .log { padding: 8px; margin: 4px 0; border-radius: 4px; }
+        .log-info { background: #e3f2fd; }
+        .log-error { background: #ffebee; }
+        .log-success { background: #e8f5e9; }
+        .log-warning { background: #fff3e0; }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">🔍 Login Debug Tool</h1>
+        
+        <!-- Test Controls -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Test Login API</h2>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Username</label>
+                    <input type="text" id="username" value="superadmin" 
+                           class="w-full px-3 py-2 border rounded">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Password</label>
+                    <input type="password" id="password" value="password" 
+                           class="w-full px-3 py-2 border rounded">
+                </div>
+            </div>
+            
+            <div class="flex gap-4">
+                <button onclick="testConfig()" 
+                        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                    1. Test Config
+                </button>
+                <button onclick="testHealthCheck()" 
+                        class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                    2. Test Health API
+                </button>
+                <button onclick="testLoginAPI()" 
+                        class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                    3. Test Login API
+                </button>
+                <button onclick="testCORS()" 
+                        class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">
+                    4. Test CORS
+                </button>
+                <button onclick="clearLogs()" 
+                        class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                    Clear Logs
+                </button>
+            </div>
+        </div>
+        
+        <!-- Debug Logs -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">Debug Logs</h2>
+            <div id="logs" class="space-y-2 max-h-96 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        // Inline config for testing
+        const API_BASE_URL = 'https://checkindigitale.cloud/api';
+        
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const div = document.createElement('div');
+            div.className = `log log-${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.insertBefore(div, logs.firstChild);
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            log('Logs cleared', 'info');
+        }
+        
+        async function testConfig() {
+            log('Testing configuration...', 'info');
+            log(`API_BASE_URL: ${API_BASE_URL}`, 'info');
+            log(`Current URL: ${window.location.href}`, 'info');
+            log(`Protocol: ${window.location.protocol}`, 'info');
+            log(`Hostname: ${window.location.hostname}`, 'info');
+            
+            // Test if config.js is loaded
+            try {
+                if (typeof CONFIG !== 'undefined') {
+                    log('✅ CONFIG object found', 'success');
+                    log(`CONFIG.API_BASE_URL: ${CONFIG.API_BASE_URL}`, 'success');
+                } else {
+                    log('❌ CONFIG object NOT found - config.js not loaded?', 'error');
+                }
+            } catch (error) {
+                log(`❌ Error checking CONFIG: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testHealthCheck() {
+            log('Testing /api/health endpoint...', 'info');
+            
+            try {
+                const url = `${API_BASE_URL}/health`;
+                log(`Fetching: ${url}`, 'info');
+                
+                const response = await fetch(url);
+                log(`Response status: ${response.status} ${response.statusText}`, 
+                    response.ok ? 'success' : 'error');
+                
+                const data = await response.json();
+                log(`Response data: ${JSON.stringify(data, null, 2)}`, 'success');
+                
+                if (data.status === 'healthy') {
+                    log('✅ Health check passed!', 'success');
+                } else {
+                    log('⚠️ Health check returned non-healthy status', 'warning');
+                }
+                
+            } catch (error) {
+                log(`❌ Health check failed: ${error.message}`, 'error');
+                log(`Error type: ${error.name}`, 'error');
+                log(`Error stack: ${error.stack}`, 'error');
+            }
+        }
+        
+        async function testLoginAPI() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            log(`Testing login with username: ${username}...`, 'info');
+            
+            try {
+                const url = `${API_BASE_URL}/auth/login`;
+                log(`POST to: ${url}`, 'info');
+                
+                const payload = { username, password };
+                log(`Payload: ${JSON.stringify(payload)}`, 'info');
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                log(`Response status: ${response.status} ${response.statusText}`, 
+                    response.ok ? 'success' : 'error');
+                
+                const data = await response.json();
+                log(`Response data: ${JSON.stringify(data, null, 2)}`, 
+                    data.success ? 'success' : 'error');
+                
+                if (data.success) {
+                    log('✅ Login successful!', 'success');
+                    log(`Token (first 20 chars): ${data.data.tokens.access_token.substring(0, 20)}...`, 'success');
+                    log(`User: ${data.data.user.username} (${data.data.user.role})`, 'success');
+                } else {
+                    log(`❌ Login failed: ${data.message}`, 'error');
+                }
+                
+            } catch (error) {
+                log(`❌ Login request failed: ${error.message}`, 'error');
+                log(`Error type: ${error.name}`, 'error');
+                
+                if (error.message.includes('Failed to fetch')) {
+                    log('⚠️ This usually means:', 'warning');
+                    log('  1. CORS issue (most common)', 'warning');
+                    log('  2. Server not responding', 'warning');
+                    log('  3. Network connectivity problem', 'warning');
+                    log('  4. Wrong API URL', 'warning');
+                }
+            }
+        }
+        
+        async function testCORS() {
+            log('Testing CORS configuration...', 'info');
+            
+            try {
+                const url = `${API_BASE_URL}/health`;
+                log(`Testing CORS with: ${url}`, 'info');
+                
+                const response = await fetch(url, {
+                    method: 'OPTIONS'
+                });
+                
+                log(`OPTIONS response status: ${response.status}`, 'info');
+                
+                const headers = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                    'Access-Control-Allow-Headers': response.headers.get('Access-Control-Allow-Headers')
+                };
+                
+                log(`CORS Headers:`, 'info');
+                Object.entries(headers).forEach(([key, value]) => {
+                    if (value) {
+                        log(`  ${key}: ${value}`, 'success');
+                    } else {
+                        log(`  ${key}: NOT SET ⚠️`, 'warning');
+                    }
+                });
+                
+                if (!headers['Access-Control-Allow-Origin']) {
+                    log('❌ CORS not configured! Check .htaccess', 'error');
+                } else if (headers['Access-Control-Allow-Origin'] === '*') {
+                    log('✅ CORS allows all origins', 'success');
+                } else {
+                    log(`✅ CORS configured for: ${headers['Access-Control-Allow-Origin']}`, 'success');
+                }
+                
+            } catch (error) {
+                log(`❌ CORS test failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-run basic tests on load
+        window.addEventListener('load', () => {
+            log('Debug tool loaded', 'success');
+            log('Click buttons to run tests', 'info');
+            setTimeout(testConfig, 500);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Hospitality Manager</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .login-card {
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        
+        .input-focus:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .loading-spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .error-shake {
+            animation: shake 0.5s;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    
+    <!-- Login Container -->
+    <div class="w-full max-w-md">
+        
+        <!-- Logo & Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
+                <i data-lucide="building-2" class="w-8 h-8 text-purple-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-white mb-2">Hospitality Manager</h1>
+            <p class="text-purple-100">Sistema di gestione accessi ospiti</p>
+        </div>
+        
+        <!-- Login Card -->
+        <div class="login-card rounded-2xl shadow-2xl p-8">
+            
+            <!-- Alert Container -->
+            <div id="alertContainer" class="mb-6 hidden"></div>
+            
+            <!-- Login Form -->
+            <form id="loginForm" class="space-y-6">
+                
+                <!-- Username -->
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
+                        Username
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="user" class="w-5 h-5 text-gray-400"></i>
+                        </div>
+                        <input 
+                            type="text" 
+                            id="username" 
+                            name="username"
+                            class="input-focus block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none"
+                            placeholder="Inserisci username"
+                            required
+                            autocomplete="username"
+                        >
+                    </div>
+                </div>
+                
+                <!-- Password -->
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                        Password
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="lock" class="w-5 h-5 text-gray-400"></i>
+                        </div>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password"
+                            class="input-focus block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:outline-none"
+                            placeholder="Inserisci password"
+                            required
+                            autocomplete="current-password"
+                        >
+                        <button 
+                            type="button" 
+                            id="togglePassword"
+                            class="absolute inset-y-0 right-0 pr-3 flex items-center"
+                        >
+                            <i data-lucide="eye" class="w-5 h-5 text-gray-400 hover:text-gray-600"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Stadium ID (Optional - for non-super admins) -->
+                <div id="stadiumContainer" class="hidden">
+                    <label for="stadium_id" class="block text-sm font-medium text-gray-700 mb-2">
+                        Stadio
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="building" class="w-5 h-5 text-gray-400"></i>
+                        </div>
+                        <input 
+                            type="number" 
+                            id="stadium_id" 
+                            name="stadium_id"
+                            class="input-focus block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:outline-none"
+                            placeholder="ID Stadio (opzionale)"
+                        >
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">
+                        Lascia vuoto se sei Super Admin
+                    </p>
+                </div>
+                
+                <!-- Remember Me -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <input 
+                            id="remember" 
+                            name="remember" 
+                            type="checkbox"
+                            class="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded"
+                        >
+                        <label for="remember" class="ml-2 block text-sm text-gray-700">
+                            Ricordami
+                        </label>
+                    </div>
+                    <a href="#" class="text-sm font-medium text-purple-600 hover:text-purple-500">
+                        Password dimenticata?
+                    </a>
+                </div>
+                
+                <!-- Submit Button -->
+                <button 
+                    type="submit" 
+                    id="submitBtn"
+                    class="btn-primary w-full flex items-center justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-white font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+                >
+                    <span id="btnText">Accedi</span>
+                    <span id="btnLoading" class="loading-spinner ml-3 hidden"></span>
+                </button>
+                
+            </form>
+            
+            <!-- Footer Info -->
+            <div class="mt-6 text-center">
+                <p class="text-xs text-gray-500">
+                    v1.3.0 - Sistema multi-tenant sicuro
+                </p>
+            </div>
+            
+        </div>
+        
+        <!-- Test Credentials (Development only) -->
+        <div class="mt-6 bg-white bg-opacity-20 backdrop-blur-sm rounded-lg p-4 text-white text-xs">
+            <p class="font-semibold mb-2">🔐 Credenziali di test:</p>
+            <ul class="space-y-1">
+                <li><strong>Super Admin:</strong> superadmin / password</li>
+                <li><strong>Stadium Admin:</strong> admin_test / SecurePass123!</li>
+                <li><strong>Hostess:</strong> hostess_maria / HostessPass123!</li>
+            </ul>
+        </div>
+        
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+        
+        // Toggle password visibility
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const passwordInput = document.getElementById('password');
+            const icon = this.querySelector('i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.setAttribute('data-lucide', 'eye-off');
+            } else {
+                passwordInput.type = 'password';
+                icon.setAttribute('data-lucide', 'eye');
+            }
+            
+            lucide.createIcons();
+        });
+        
+        // Show alert
+        function showAlert(message, type = 'error') {
+            const container = document.getElementById('alertContainer');
+            const colors = {
+                error: 'bg-red-50 text-red-800 border-red-200',
+                success: 'bg-green-50 text-green-800 border-green-200',
+                warning: 'bg-yellow-50 text-yellow-800 border-yellow-200'
+            };
+            
+            const icons = {
+                error: 'alert-circle',
+                success: 'check-circle',
+                warning: 'alert-triangle'
+            };
+            
+            container.innerHTML = `
+                <div class="flex items-center p-4 border rounded-lg ${colors[type]} error-shake">
+                    <i data-lucide="${icons[type]}" class="w-5 h-5 mr-3"></i>
+                    <span class="text-sm font-medium">${message}</span>
+                </div>
+            `;
+            
+            container.classList.remove('hidden');
+            lucide.createIcons();
+            
+            setTimeout(() => {
+                container.classList.add('hidden');
+            }, 5000);
+        }
+        
+        // Handle form submission
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const btnText = document.getElementById('btnText');
+            const btnLoading = document.getElementById('btnLoading');
+            
+            // Disable button and show loading
+            submitBtn.disabled = true;
+            btnText.textContent = 'Accesso in corso...';
+            btnLoading.classList.remove('hidden');
+            
+            // Get form data
+            const formData = {
+                username: document.getElementById('username').value.trim(),
+                password: document.getElementById('password').value
+            };
+            
+            const stadiumId = document.getElementById('stadium_id').value;
+            if (stadiumId) {
+                formData.stadium_id = parseInt(stadiumId);
+            }
+            
+            try {
+                const result = await Auth.login(formData.username, formData.password, formData.stadium_id);
+                
+                if (result.success) {
+                    showAlert('Accesso effettuato con successo! Reindirizzamento...', 'success');
+                    
+                    // Redirect after 1 second
+                    setTimeout(() => {
+                        window.location.href = 'dashboard.html';
+                    }, 1000);
+                } else {
+                    showAlert(result.message || 'Credenziali non valide');
+                    
+                    // Re-enable button
+                    submitBtn.disabled = false;
+                    btnText.textContent = 'Accedi';
+                    btnLoading.classList.add('hidden');
+                }
+                
+            } catch (error) {
+                console.error('Login error:', error);
+                showAlert('Errore di connessione. Riprova.');
+                
+                // Re-enable button
+                submitBtn.disabled = false;
+                btnText.textContent = 'Accedi';
+                btnLoading.classList.add('hidden');
+            }
+        });
+        
+        // Auto-focus username field
+        document.getElementById('username').focus();
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Utenti - Hospitality Manager</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .sidebar-active { background-color: rgba(102, 126, 234, 0.1); border-left: 3px solid #667eea; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    
+    <div class="flex h-screen overflow-hidden">
+        
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-64 bg-white border-r border-gray-200 flex-shrink-0">
+            
+            <div class="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+                <div class="flex items-center">
+                    <i data-lucide="building-2" class="w-8 h-8 text-purple-600 mr-2"></i>
+                    <span class="text-xl font-bold text-gray-800">HM</span>
+                </div>
+            </div>
+            
+            <div class="p-4 border-b border-gray-200">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                        <span id="userInitials" class="text-purple-600 font-semibold text-sm"></span>
+                    </div>
+                    <div class="ml-3 flex-1 min-w-0">
+                        <p id="userName" class="text-sm font-medium text-gray-900 truncate"></p>
+                        <p id="userRole" class="text-xs text-gray-500 truncate"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <nav class="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+                <a href="dashboard.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5 mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <a href="guests.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                    <i data-lucide="users" class="w-5 h-5 mr-3"></i>
+                    Ospiti
+                </a>
+                
+                <a href="import.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                    <i data-lucide="upload" class="w-5 h-5 mr-3"></i>
+                    Import Excel
+                </a>
+                
+                <div class="pt-4 mt-4 border-t border-gray-200" id="adminMenu">
+                    <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                        Amministrazione
+                    </p>
+                    
+                    <a href="events.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="calendar" class="w-5 h-5 mr-3"></i>
+                        Eventi
+                    </a>
+                    
+                    <a href="rooms.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="door-open" class="w-5 h-5 mr-3"></i>
+                        Sale
+                    </a>
+                    
+                    <a href="users.html" class="sidebar-active flex items-center px-3 py-2 text-sm font-medium text-gray-900 rounded-lg">
+                        <i data-lucide="user-cog" class="w-5 h-5 mr-3"></i>
+                        Utenti
+                    </a>
+                </div>
+                
+                <div class="pt-4 mt-4 border-t border-gray-200" id="superAdminMenu" style="display: none;">
+                    <p class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                        Super Admin
+                    </p>
+                    
+                    <a href="stadiums.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="building" class="w-5 h-5 mr-3"></i>
+                        Stadi
+                    </a>
+                </div>
+            </nav>
+            
+            <div class="p-4 border-t border-gray-200">
+                <button id="logoutBtn" class="flex items-center w-full px-3 py-2 text-sm font-medium text-red-600 rounded-lg hover:bg-red-50">
+                    <i data-lucide="log-out" class="w-5 h-5 mr-3"></i>
+                    Esci
+                </button>
+            </div>
+            
+        </aside>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Utenti</h1>
+                    <p class="text-sm text-gray-500" id="stadiumName">Caricamento...</p>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <button id="filterAllBtn" class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
+                            Tutti
+                        </button>
+                        <button id="filterAdminBtn" class="px-3 py-1.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                            Admin
+                        </button>
+                        <button id="filterHostessBtn" class="px-3 py-1.5 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                            Hostess
+                        </button>
+                    </div>
+                    
+                    <button id="newUserBtn" class="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <i data-lucide="plus" class="w-4 h-4 mr-2"></i>
+                        Nuovo Utente
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Page Content -->
+            <main class="flex-1 overflow-y-auto p-6">
+                
+                <!-- Loading State -->
+                <div id="loadingState" class="text-center py-12">
+                    <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                    <p class="mt-4 text-gray-600">Caricamento utenti...</p>
+                </div>
+                
+                <!-- Users Table -->
+                <div id="usersTable" class="hidden bg-white rounded-lg shadow overflow-hidden">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Utente</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ruolo</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contatti</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sale Assegnate</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ultimo Accesso</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stato</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Empty State -->
+                <div id="emptyState" class="hidden bg-white rounded-lg shadow p-12 text-center">
+                    <i data-lucide="user-cog" class="w-16 h-16 text-gray-300 mx-auto mb-4"></i>
+                    <h3 class="text-lg font-medium text-gray-900 mb-2">Nessun utente trovato</h3>
+                    <p class="text-gray-500 mb-6">Crea il primo utente per questo stadio</p>
+                    <button onclick="Users.showEditModal(null)" class="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                        <i data-lucide="plus" class="w-4 h-4 mr-2"></i>
+                        Crea Primo Utente
+                    </button>
+                </div>
+                
+            </main>
+            
+        </div>
+        
+    </div>
+    
+    <!-- Edit User Modal -->
+    <div id="editModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <!-- Modal content populated by JS -->
+    </div>
+    
+    <!-- Room Assignment Modal -->
+    <div id="roomAssignmentModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <!-- Modal content populated by JS -->
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/users.js"></script>
+    
+    <script>
+        lucide.createIcons();
+        
+        if (!Auth.requireAuth()) {
+            // Redirect handled
+        } else {
+            // Load user info
+            const user = Auth.getUser();
+            if (user) {
+                document.getElementById('userName').textContent = user.full_name || user.username;
+                document.getElementById('userRole').textContent = user.role.replace('_', ' ');
+                document.getElementById('userInitials').textContent = user.full_name ? 
+                    user.full_name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) : 
+                    user.username.substring(0, 2).toUpperCase();
+                document.getElementById('stadiumName').textContent = user.stadium_name || 'Multi-Stadio';
+                
+                // Menu visibility
+                if (user.role === 'hostess') {
+                    document.getElementById('adminMenu').style.display = 'none';
+                }
+                if (user.role === 'super_admin') {
+                    document.getElementById('superAdminMenu').style.display = 'block';
+                }
+            }
+            
+            // Logout
+            document.getElementById('logoutBtn').addEventListener('click', async () => {
+                if (confirm('Sei sicuro di voler uscire?')) {
+                    await Auth.logout();
+                }
+            });
+            
+            // Initialize users page
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    Users.init();
+                });
+            } else {
+                Users.init();
+            }
+        }
+    </script>
+    
+</body>
+</html>
