@@ -111,6 +111,32 @@ const Auth = {
             window.location.href = 'login.html';
         }
     },
+
+    /**
+     * Get current user info from API
+     */
+    async getCurrentUser() {
+        try {
+            const response = await fetch(`${CONFIG.API_BASE_URL}/auth/me`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': this.getAuthHeader(),
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                return data.data.user;
+            } else {
+                throw new Error(data.message || 'Failed to get user info');
+            }
+        } catch (error) {
+            console.error('Get current user error:', error);
+            throw error;
+        }
+    },
     
     /**
      * Check if user is authenticated

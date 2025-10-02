@@ -202,15 +202,34 @@ class GuestRepository {
             SELECT 
                 g.*,
                 hr.name as room_name,
-                hr.capacity as room_capacity,
                 e.name as event_name,
                 e.event_date,
-                e.event_time,
-                s.name as stadium_name
+                s.name as stadium_name,
+                -- Calcola stato reale
+                CASE 
+                    WHEN last_entry.id IS NOT NULL AND (last_exit.id IS NULL OR last_exit.access_time < last_entry.access_time)
+                    THEN 'checked_in'
+                    ELSE 'not_checked_in'
+                END as access_status,
+                last_entry.access_time as last_access_time
             FROM guests g
             JOIN hospitality_rooms hr ON g.room_id = hr.id
             JOIN events e ON g.event_id = e.id
             JOIN stadiums s ON g.stadium_id = s.id
+            -- Ultimo entry
+            LEFT JOIN (
+                SELECT guest_id, id, access_time
+                FROM guest_accesses
+                WHERE access_type = 'entry'
+                ORDER BY access_time DESC
+            ) last_entry ON g.id = last_entry.guest_id
+            -- Ultimo exit
+            LEFT JOIN (
+                SELECT guest_id, id, access_time
+                FROM guest_accesses
+                WHERE access_type = 'exit'
+                ORDER BY access_time DESC
+            ) last_exit ON g.id = last_exit.guest_id
             WHERE g.id = :guest_id AND g.is_active = 1
         ";
 

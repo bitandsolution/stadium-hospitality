@@ -259,31 +259,95 @@ const API = {
         assignRooms: (userId, roomIds) => API.post(`/admin/users/${userId}/rooms`, { room_ids: roomIds }),
         removeRoom: (userId, roomId) => API.delete(`/admin/users/${userId}/rooms/${roomId}`)
     },
-    
+      
     // ===================================
     // API ENDPOINTS - Guests
     // ===================================
     
     guests: {
-        // Search (for hostess)
-        search: (params) => API.get('/guests/search', params),
-        quickSearch: (query, stadiumId) => API.get('/guests/quick-search', { q: query, stadium_id: stadiumId }),
-        get: (id) => API.get(`/guests/${id}`),
-        update: (id, data) => API.put(`/guests/${id}`, data),
+        /**
+         * Search guests with filters
+         */
+        search: async (params = {}) => {
+            return await API.get('/guests/search', params);
+        },
         
-        // Admin endpoints
+        /**
+         * Quick search autocomplete
+         */
+        quickSearch: async (query, stadiumId = null) => {
+            const params = { q: query };
+            if (stadiumId) params.stadium_id = stadiumId;
+            return await API.get('/guests/quick-search', params);
+        },
+        
+        /**
+         * Get guest by ID
+         */
+        getById: async (id) => {
+            return await API.get(`/guests/${id}`);
+        },
+        
+        /**
+         * Update guest
+         */
+        update: async (id, data) => {
+            return await API.put(`/guests/${id}`, data);
+        },
+        
+        /**
+         * Check-in guest
+         */
+        checkin: async (id) => {
+            return await API.post(`/guests/${id}/checkin`);
+        },
+        
+        /**
+         * Check-out guest
+         */
+        checkout: async (id) => {
+            return await API.post(`/guests/${id}/checkout`);
+        },
+        
+        /**
+         * Get guest access history
+         */
+        getAccessHistory: async (id, limit = 50) => {
+            return await API.get(`/guests/${id}/access-history`, { limit });
+        },
+        
+        /**
+         * Get current guests in room
+         */
+        getCurrentInRoom: async (roomId) => {
+            return await API.get(`/rooms/${roomId}/current-guests`);
+        },
+        
+        /**
+         * Admin CRUD operations
+         */
         admin: {
-            list: (params) => API.get('/admin/guests', params),
-            create: (data) => API.post('/admin/guests', data),
-            update: (id, data) => API.put(`/admin/guests/${id}`, data),
-            delete: (id) => API.delete(`/admin/guests/${id}`),
-            
-            // Import
-            downloadTemplate: () => {
-                window.open(`${CONFIG.API_BASE_URL}/admin/guests/import/template`, '_blank');
+            list: async (params = {}) => {
+                return await API.get('/admin/guests', params);
             },
-            import: (file, eventId, stadiumId) => 
-                API.uploadFile('/admin/guests/import', file, { event_id: eventId, stadium_id: stadiumId })
+            create: async (data) => {
+                return await API.post('/admin/guests', data);
+            },
+            update: async (id, data) => {
+                return await API.put(`/admin/guests/${id}`, data);
+            },
+            delete: async (id) => {
+                return await API.delete(`/admin/guests/${id}`);
+            },
+            
+            // Import/Export
+            import: async (file, additionalData = {}) => {
+                return await API.uploadFile('/admin/guests/import', file, additionalData);
+            },
+            downloadTemplate: async () => {
+                const url = `${CONFIG.API_BASE_URL}/admin/guests/import/template`;
+                window.open(url, '_blank');
+            }
         }
     },
        

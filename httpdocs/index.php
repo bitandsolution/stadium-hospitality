@@ -611,6 +611,60 @@ try {
     }
 
     // =====================================================
+    // GUEST ACCESS ROUTES (Check-in/Check-out)
+    // =====================================================
+
+    elseif (preg_match('/^\/api\/guests\/(\d+)\/checkin$/', $path, $matches) && $method === 'POST') {
+        try {
+            $controller = new Hospitality\Controllers\GuestAccessController();
+            $controller->checkin((int)$matches[1]);
+        } catch (Exception $e) {
+            error_log("Check-in error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Check-in failed',
+                'error' => $e->getMessage(),
+                'timestamp' => date('c')
+            ], JSON_PRETTY_PRINT);
+        }
+        $routed = true;
+    }
+
+    elseif (preg_match('/^\/api\/guests\/(\d+)\/checkout$/', $path, $matches) && $method === 'POST') {
+        try {
+            $controller = new Hospitality\Controllers\GuestAccessController();
+            $controller->checkout((int)$matches[1]);
+        } catch (Exception $e) {
+            error_log("Check-out error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Check-out failed',
+                'error' => $e->getMessage(),
+                'timestamp' => date('c')
+            ], JSON_PRETTY_PRINT);
+        }
+        $routed = true;
+    }
+
+    elseif (preg_match('/^\/api\/guests\/(\d+)\/access-history$/', $path, $matches) && $method === 'GET') {
+        try {
+            $controller = new Hospitality\Controllers\GuestAccessController();
+            $controller->getAccessHistory((int)$matches[1]);
+        } catch (Exception $e) {
+            error_log("Access history error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Failed to get access history',
+                'timestamp' => date('c')
+            ], JSON_PRETTY_PRINT);
+        }
+        $routed = true;
+    }
+    
+    // =====================================================
     // GUEST ROUTES (Search, Details, Update)
     // =====================================================
     
@@ -636,6 +690,29 @@ try {
         elseif (preg_match('/^\/api\/guests\/(\d+)$/', $path, $matches) && $method === 'PUT') {
             if (!Hospitality\Middleware\AuthMiddleware::handle()) return;
             $controller->update((int)$matches[1]);
+            $routed = true;
+        }
+    }
+
+    // =====================================================
+    // ROOM ACCESS ROUTES
+    // =====================================================
+    
+    elseif (str_starts_with($path, '/api/rooms/') && str_contains($path, '/current-guests')) {
+        // Current guests in room
+        if (preg_match('/^\/api\/rooms\/(\d+)\/current-guests$/', $path, $matches) && $method === 'GET') {
+            try {
+                $controller = new Hospitality\Controllers\GuestAccessController();
+                $controller->getCurrentGuestsInRoom((int)$matches[1]);
+            } catch (Exception $e) {
+                error_log("Current guests error: " . $e->getMessage());
+                http_response_code(500);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Failed to get current guests',
+                    'timestamp' => date('c')
+                ], JSON_PRETTY_PRINT);
+            }
             $routed = true;
         }
     }
@@ -751,7 +828,11 @@ function sendNotFound(string $path, string $method): void {
             'GET /api/admin/events' => 'List events',
             'POST /api/admin/users' => 'Create user',
             'GET /api/guests/search' => 'Search guests',
-            'PUT /api/guests/{id}' => 'Update guest (hostess)'
+            'PUT /api/guests/{id}' => 'Update guest',
+            'POST /api/guests/{id}/checkin' => 'Check-in guest',
+            'POST /api/guests/{id}/checkout' => 'Check-out guest',
+            'GET /api/guests/{id}/access-history' => 'Guest history',
+            'GET /api/rooms/{id}/current-guests' => 'Current guests'
         ],
         'timestamp' => date('c')
     ], JSON_PRETTY_PRINT);

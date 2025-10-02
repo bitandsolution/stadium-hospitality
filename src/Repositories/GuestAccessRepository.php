@@ -2,15 +2,13 @@
 /*********************************************************
 *                                                        *
 *   FILE: src/Repositories/GuestAccessRepository.php     *
+*   Data Access Layer per accessi ospiti                 *
 *                                                        *
 *   Author: Antonio Tartaglia - bitAND solution          *
 *   website: https://www.bitandsolution.it               *
 *   email:   info@bitandsolution.it                      *
 *                                                        *
 *   Owner: bitAND solution                               *
-*                                                        *
-*   This is proprietary software                         *
-*   developed by bitAND solution for bitAND solution     *
 *                                                        *
 *********************************************************/
 
@@ -28,375 +26,316 @@ class GuestAccessRepository {
     }
 
     /**
-     * Ottieni stato attuale ospite (ultimo accesso)
+     * Crea nuovo record di accesso (entry o exit)
      */
-    public function getGuestCurrentStatus(int $guestId, int $stadiumId): ?array {
-        $sql = "
+    public function createAccess(array $data): int {
+        $stmt = $this->db->prepare("
+            INSERT INTO guest_accesses (
+                guest_id, hostess_id, stadium_id, room_id, event_id,
+                access_type, access_time, device_type, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, NOW())
+        ");
+
+        $stmt->execute([
+            $data['guest_id'],
+            $data['hostess_id'],
+            $data['stadium_id'],
+            $data['room_id'],
+            $data['event_id'],
+            $data['access_type'], // 'entry' or 'exit'
+            $data['device_type'] ?? 'web'
+        ]);
+
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * Ottieni ultimo accesso per un ospite
+     */
+    public function getLastAccess(int $guestId): ?array {
+        $stmt = $this->db->prepare("
+            SELECT 
+                ga.*,
+                u.full_name as hostess_name,
+                u.username as hostess_username
+            FROM guest_accesses ga
+            LEFT JOIN users u ON ga.hostess_id = u.id
+            WHERE ga.guest_id = ?
+            ORDER BY ga.access_time DESC
+            LIMIT 1
+        ");
+
+        $stmt->execute([$guestId]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $result ?: null;
+    }
+
+    /**
+     * Ottieni storico accessi completo per ospite
+     */
+    public function getGuestAccessHistory(int $guestId, int $limit = 50): array {
+        $stmt = $this->db->prepare("
             SELECT 
                 ga.id,
                 ga.access_type,
                 ga.access_time,
-                ga.companions,
-                ga.notes,
+                ga.device_type,
                 u.full_name as hostess_name,
-                CASE 
-                    WHEN ga.access_type = 'entry' THEN 'checked_in'
-                    WHEN ga.access_type = 'exit' THEN 'checked_out'
-                    ELSE 'never_accessed'
-                END as current_status
+                hr.name as room_name,
+                e.name as event_name
             FROM guest_accesses ga
-            JOIN users u ON ga.hostess_id = u.id
-            WHERE ga.guest_id = ? AND ga.stadium_id = ?
-            ORDER BY ga.access_time DESC, ga.id DESC
-            LIMIT 1
-        ";
+            LEFT JOIN users u ON ga.hostess_id = u.id
+            LEFT JOIN hospitality_rooms hr ON ga.room_id = hr.id
+            LEFT JOIN events e ON ga.event_id = e.id
+            WHERE ga.guest_id = ?
+            ORDER BY ga.access_time DESC
+            LIMIT ?
+        ");
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$guestId, $stadiumId]);
+        $stmt->bindValue(1, $guestId, PDO::PARAM_INT);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
 
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**
-     * Verifica se hostess può accedere alla sala dell'ospite
-     * Super admin può accedere a tutte le sale
+     * Ottieni ospiti attualmente presenti in una sala
+     * (ultimo accesso = entry senza exit successivo)
      */
-    public function canHostessAccessGuest(int $hostessId, int $guestId, int $stadiumId): bool {
-        // Prima verifica il ruolo dell'utente
-        $userSql = "SELECT role FROM users WHERE id = ?";
-        $userStmt = $this->db->prepare($userSql);
-        $userStmt->execute([$hostessId]);
-        $userRole = $userStmt->fetchColumn();
-        
-        // Super admin può accedere a tutti gli ospiti del proprio stadio
-        if ($userRole === 'super_admin') {
-            $sql = "
-                SELECT 1
-                FROM guests g
-                WHERE g.id = ? 
-                    AND g.stadium_id = ?
-                    AND g.is_active = 1
-            ";
-            
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$guestId, $stadiumId]);
-            
-            return $stmt->rowCount() > 0;
-        }
-        
-        // Per hostess, verifica assegnazione sala
-        $sql = "
-            SELECT 1
+    public function getCurrentGuestsInRoom(int $roomId): array {
+        $stmt = $this->db->prepare("
+            SELECT 
+                g.id as guest_id,
+                g.first_name,
+                g.last_name,
+                g.vip_level,
+                g.table_number,
+                ga.access_time as checkin_time,
+                u.full_name as checked_in_by,
+                TIMESTAMPDIFF(MINUTE, ga.access_time, NOW()) as minutes_in_room
             FROM guests g
-            JOIN user_room_assignments ura ON g.room_id = ura.room_id
-            WHERE g.id = ? 
-                AND g.stadium_id = ?
-                AND ura.user_id = ? 
-                AND ura.is_active = 1
-                AND g.is_active = 1
-        ";
+            INNER JOIN guest_accesses ga ON g.id = ga.guest_id
+            LEFT JOIN users u ON ga.hostess_id = u.id
+            WHERE g.room_id = ?
+                AND ga.access_type = 'entry'
+                AND ga.id = (
+                    SELECT MAX(ga2.id)
+                    FROM guest_accesses ga2
+                    WHERE ga2.guest_id = g.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM guest_accesses ga3
+                    WHERE ga3.guest_id = g.id
+                        AND ga3.access_type = 'exit'
+                        AND ga3.access_time > ga.access_time
+                )
+            ORDER BY ga.access_time DESC
+        ");
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$guestId, $stadiumId, $hostessId]);
+        $stmt->execute([$roomId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 
+    /**
+     * Verifica se una hostess può accedere a una specifica sala
+     */
+    public function hostessCanAccessRoom(int $hostessId, int $roomId): bool {
+        $stmt = $this->db->prepare("
+            SELECT 1 
+            FROM user_room_assignments 
+            WHERE user_id = ? AND room_id = ? AND is_active = 1
+        ");
+
+        $stmt->execute([$hostessId, $roomId]);
         return $stmt->rowCount() > 0;
     }
 
     /**
-     * Registra check-in ospite
+     * Statistiche accessi per evento
      */
-    public function recordCheckin(int $guestId, int $hostessId, int $stadiumId, array $data = []): array {
-        try {
-            $this->db->beginTransaction();
-
-            // 1. Verifica stato attuale
-            $currentStatus = $this->getGuestCurrentStatus($guestId, $stadiumId);
-            
-            if ($currentStatus && $currentStatus['access_type'] === 'entry') {
-                throw new Exception('Guest is already checked in');
-            }
-
-            // 2. Ottieni info ospite
-            $guestInfo = $this->getGuestInfo($guestId, $stadiumId);
-            if (!$guestInfo) {
-                throw new Exception('Guest not found or inactive');
-            }
-
-            // 3. Verifica accesso hostess
-            if (!$this->canHostessAccessGuest($hostessId, $guestId, $stadiumId)) {
-                throw new Exception('Hostess does not have access to this guest\'s room');
-            }
-
-            // 4. Registra l'accesso - SENZA created_at
-            $deviceInfo = $this->collectDeviceInfo();
-            
-            $stmt = $this->db->prepare("
-                INSERT INTO guest_accesses (
-                    stadium_id, guest_id, hostess_id, access_type, 
-                    access_time, notes, device_info
-                ) VALUES (?, ?, ?, 'entry', NOW(), ?, ?)
-            ");
-
-            $stmt->execute([
-                $stadiumId,
-                $guestId,
-                $hostessId,
-                $data['notes'] ?? null,
-                json_encode($deviceInfo)
-            ]);
-
-            $accessId = $this->db->lastInsertId();
-
-            // 5. Ottieni dati completi per response
-            $result = $this->getAccessRecord($accessId);
-
-            $this->db->commit();
-
-            return [
-                'access_id' => (int)$accessId,
-                'guest_id' => $guestId,
-                'guest_name' => $guestInfo['full_name'],
-                'room_name' => $guestInfo['room_name'],
-                'table_number' => $guestInfo['table_number'],
-                'checkin_time' => $result['access_time'],
-                'hostess_name' => $result['hostess_name'],
-                'previous_status' => $currentStatus ? $currentStatus['current_status'] : 'never_accessed',
-                'companions' => 0, // Sempre 0 per ora (fino a quando non aggiungiamo la colonna)
-                'notes' => $data['notes'] ?? null
-            ];
-
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-    }
-
-    /**
-     * Registra check-out ospite
-     */
-    public function recordCheckout(int $guestId, int $hostessId, int $stadiumId, array $data = []): array {
-        try {
-            $this->db->beginTransaction();
-
-            // 1. Verifica stato attuale
-            $currentStatus = $this->getGuestCurrentStatus($guestId, $stadiumId);
-            
-            if (!$currentStatus || $currentStatus['access_type'] !== 'entry') {
-                throw new Exception('Guest is not currently checked in');
-            }
-
-            // 2. Ottieni info ospite
-            $guestInfo = $this->getGuestInfo($guestId, $stadiumId);
-            if (!$guestInfo) {
-                throw new Exception('Guest not found or inactive');
-            }
-
-            // 3. Verifica accesso hostess
-            if (!$this->canHostessAccessGuest($hostessId, $guestId, $stadiumId)) {
-                throw new Exception('Hostess does not have access to this guest\'s room');
-            }
-
-            // 4. Registra l'uscita - SENZA created_at
-            $deviceInfo = $this->collectDeviceInfo();
-            
-            $stmt = $this->db->prepare("
-                INSERT INTO guest_accesses (
-                    stadium_id, guest_id, hostess_id, access_type, 
-                    access_time, notes, device_info
-                ) VALUES (?, ?, ?, 'exit', NOW(), ?, ?)
-            ");
-
-            $stmt->execute([
-                $stadiumId,
-                $guestId,
-                $hostessId,
-                $data['notes'] ?? null,
-                json_encode($deviceInfo)
-            ]);
-
-            $accessId = $this->db->lastInsertId();
-
-            // 5. Calcola durata permanenza
-            $checkinTime = new \DateTime($currentStatus['access_time']);
-            $checkoutTime = new \DateTime();
-            $duration = $checkoutTime->diff($checkinTime);
-            $durationMinutes = ($duration->h * 60) + $duration->i;
-
-            // 6. Ottieni dati completi per response
-            $result = $this->getAccessRecord($accessId);
-
-            $this->db->commit();
-
-            return [
-                'access_id' => (int)$accessId,
-                'guest_id' => $guestId,
-                'guest_name' => $guestInfo['full_name'],
-                'room_name' => $guestInfo['room_name'],
-                'checkout_time' => $result['access_time'],
-                'checkin_time' => $currentStatus['access_time'],
-                'duration_minutes' => $durationMinutes,
-                'hostess_name' => $result['hostess_name'],
-                'notes' => $data['notes'] ?? null
-            ];
-
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
-    }
-
-    /**
-     * Ottieni storico completo accessi ospite
-     */
-    public function getGuestAccessHistory(int $guestId, int $stadiumId): array {
-        // Info base ospite
-        $guestInfo = $this->getGuestInfo($guestId, $stadiumId);
-        if (!$guestInfo) {
-            throw new Exception('Guest not found');
-        }
-
-        // Storico accessi
-        $sql = "
+    public function getEventAccessStats(int $eventId): array {
+        $stmt = $this->db->prepare("
             SELECT 
-                ga.id,
-                ga.access_type,
-                ga.access_time,
-                ga.companions,
-                ga.notes,
-                u.full_name as hostess_name,
-                ga.device_info
+                COUNT(DISTINCT CASE WHEN ga.access_type = 'entry' THEN ga.guest_id END) as total_checkins,
+                COUNT(DISTINCT CASE WHEN ga.access_type = 'exit' THEN ga.guest_id END) as total_checkouts,
+                COUNT(DISTINCT ga.guest_id) as unique_guests,
+                MIN(ga.access_time) as first_access,
+                MAX(ga.access_time) as last_access,
+                AVG(TIMESTAMPDIFF(MINUTE, 
+                    (SELECT ga2.access_time FROM guest_accesses ga2 
+                     WHERE ga2.guest_id = ga.guest_id AND ga2.access_type = 'entry' 
+                     ORDER BY ga2.access_time DESC LIMIT 1),
+                    (SELECT ga3.access_time FROM guest_accesses ga3 
+                     WHERE ga3.guest_id = ga.guest_id AND ga3.access_type = 'exit' 
+                     ORDER BY ga3.access_time DESC LIMIT 1)
+                )) as avg_duration_minutes
             FROM guest_accesses ga
-            JOIN users u ON ga.hostess_id = u.id
-            WHERE ga.guest_id = ? AND ga.stadium_id = ?
-            ORDER BY ga.access_time DESC, ga.id DESC
-        ";
+            WHERE ga.event_id = ?
+        ");
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$guestId, $stadiumId]);
-        $accessHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Calcola statistiche
-        $totalVisits = 0;
-        $totalDurationMinutes = 0;
-        $currentStatus = 'never_accessed';
-
-        if (!empty($accessHistory)) {
-            $currentStatus = $accessHistory[0]['access_type'] === 'entry' ? 'checked_in' : 'checked_out';
-            
-            // Calcola visite complete (entry seguita da exit)
-            for ($i = 0; $i < count($accessHistory) - 1; $i += 2) {
-                if ($accessHistory[$i]['access_type'] === 'exit' && 
-                    $accessHistory[$i + 1]['access_type'] === 'entry') {
-                    
-                    $totalVisits++;
-                    
-                    // Calcola durata
-                    $entryTime = new \DateTime($accessHistory[$i + 1]['access_time']);
-                    $exitTime = new \DateTime($accessHistory[$i]['access_time']);
-                    $duration = $exitTime->diff($entryTime);
-                    $totalDurationMinutes += ($duration->h * 60) + $duration->i;
-                }
-            }
-        }
-
-        return [
-            'guest' => $guestInfo,
-            'access_history' => $accessHistory,
-            'current_status' => $currentStatus,
-            'total_visits' => $totalVisits,
-            'total_duration_minutes' => $totalDurationMinutes
-        ];
+        $stmt->execute([$eventId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
     /**
-     * Ottieni info ospite per check-in/out
+     * Statistiche accessi per sala
      */
-    private function getGuestInfo(int $guestId, int $stadiumId): ?array {
+    public function getRoomAccessStats(int $roomId, ?int $eventId = null): array {
         $sql = "
             SELECT 
-                g.id,
-                CONCAT(g.last_name, ', ', g.first_name) as full_name,
-                g.table_number,
-                g.vip_level,
-                hr.name as room_name,
-                e.name as event_name,
-                e.event_date
-            FROM guests g
-            JOIN hospitality_rooms hr ON g.room_id = hr.id
-            JOIN events e ON g.event_id = e.id
-            WHERE g.id = ? AND g.stadium_id = ? AND g.is_active = 1
-        ";
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$guestId, $stadiumId]);
-
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
-
-    /**
-     * Ottieni record accesso specifico
-     */
-    private function getAccessRecord(int $accessId): array {
-        $sql = "
-            SELECT 
-                ga.access_time,
-                u.full_name as hostess_name
+                COUNT(DISTINCT CASE WHEN ga.access_type = 'entry' THEN ga.guest_id END) as total_checkins,
+                COUNT(DISTINCT CASE WHEN ga.access_type = 'exit' THEN ga.guest_id END) as total_checkouts,
+                COUNT(DISTINCT ga.hostess_id) as hostesses_involved,
+                DATE(ga.access_time) as access_date,
+                HOUR(ga.access_time) as access_hour,
+                COUNT(*) as hourly_count
             FROM guest_accesses ga
-            JOIN users u ON ga.hostess_id = u.id
-            WHERE ga.id = ?
+            WHERE ga.room_id = ?
         ";
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$accessId]);
+        $params = [$roomId];
 
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Raccogli info dispositivo per audit trail
-     */
-    private function collectDeviceInfo(): array {
-        return [
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-            'timestamp' => date('c'),
-            'request_method' => $_SERVER['REQUEST_METHOD'] ?? 'unknown',
-            'request_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown'
-        ];
-    }
-
-    /**
-     * Ottieni statistiche accessi per periodo
-     */
-    public function getAccessStats(int $stadiumId, ?int $roomId = null, ?string $date = null): array {
-        $sql = "
-            SELECT 
-                COUNT(CASE WHEN access_type = 'entry' THEN 1 END) as total_checkins,
-                COUNT(CASE WHEN access_type = 'exit' THEN 1 END) as total_checkouts,
-                COUNT(DISTINCT guest_id) as unique_guests,
-                COUNT(DISTINCT hostess_id) as active_hostesses
-            FROM guest_accesses
-            WHERE stadium_id = ?
-        ";
-
-        $params = [$stadiumId];
-
-        if ($roomId) {
-            $sql .= " AND guest_id IN (
-                SELECT id FROM guests WHERE room_id = ? AND stadium_id = ?
-            )";
-            $params[] = $roomId;
-            $params[] = $stadiumId;
+        if ($eventId) {
+            $sql .= " AND ga.event_id = ?";
+            $params[] = $eventId;
         }
 
-        if ($date) {
-            $sql .= " AND DATE(access_time) = ?";
-            $params[] = $date;
-        }
+        $sql .= " GROUP BY DATE(ga.access_time), HOUR(ga.access_time)
+                  ORDER BY access_date DESC, access_hour DESC
+                  LIMIT 24";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
 
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Performance hostess - conteggio check-in per periodo
+     */
+    public function getHostessPerformance(int $hostessId, string $startDate, string $endDate): array {
+        $stmt = $this->db->prepare("
+            SELECT 
+                DATE(ga.access_time) as date,
+                COUNT(CASE WHEN ga.access_type = 'entry' THEN 1 END) as checkins,
+                COUNT(CASE WHEN ga.access_type = 'exit' THEN 1 END) as checkouts,
+                COUNT(DISTINCT ga.guest_id) as unique_guests,
+                COUNT(DISTINCT ga.room_id) as rooms_worked
+            FROM guest_accesses ga
+            WHERE ga.hostess_id = ?
+                AND DATE(ga.access_time) BETWEEN ? AND ?
+            GROUP BY DATE(ga.access_time)
+            ORDER BY date DESC
+        ");
+
+        $stmt->execute([$hostessId, $startDate, $endDate]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Accessi in tempo reale per dashboard
+     */
+    public function getRecentAccesses(int $stadiumId, int $minutes = 30, int $limit = 50): array {
+        $stmt = $this->db->prepare("
+            SELECT 
+                ga.id,
+                ga.access_type,
+                ga.access_time,
+                g.first_name,
+                g.last_name,
+                g.vip_level,
+                hr.name as room_name,
+                u.full_name as hostess_name,
+                TIMESTAMPDIFF(SECOND, ga.access_time, NOW()) as seconds_ago
+            FROM guest_accesses ga
+            INNER JOIN guests g ON ga.guest_id = g.id
+            LEFT JOIN hospitality_rooms hr ON ga.room_id = hr.id
+            LEFT JOIN users u ON ga.hostess_id = u.id
+            WHERE ga.stadium_id = ?
+                AND ga.access_time >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+            ORDER BY ga.access_time DESC
+            LIMIT ?
+        ");
+
+        $stmt->bindValue(1, $stadiumId, PDO::PARAM_INT);
+        $stmt->bindValue(2, $minutes, PDO::PARAM_INT);
+        $stmt->bindValue(3, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Conta accessi totali per guest
+     */
+    public function getGuestAccessCount(int $guestId): array {
+        $stmt = $this->db->prepare("
+            SELECT 
+                COUNT(CASE WHEN access_type = 'entry' THEN 1 END) as total_entries,
+                COUNT(CASE WHEN access_type = 'exit' THEN 1 END) as total_exits,
+                MIN(access_time) as first_access,
+                MAX(access_time) as last_access
+            FROM guest_accesses
+            WHERE guest_id = ?
+        ");
+
+        $stmt->execute([$guestId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Export accessi per periodo (per report)
+     */
+    public function exportAccessesForPeriod(
+        int $stadiumId,
+        string $startDate,
+        string $endDate,
+        ?int $roomId = null,
+        ?int $eventId = null
+    ): array {
+        $sql = "
+            SELECT 
+                ga.id,
+                ga.access_time,
+                ga.access_type,
+                g.first_name as guest_first_name,
+                g.last_name as guest_last_name,
+                g.company_name,
+                g.vip_level,
+                g.table_number,
+                hr.name as room_name,
+                e.name as event_name,
+                e.event_date,
+                u.full_name as hostess_name,
+                ga.device_type
+            FROM guest_accesses ga
+            INNER JOIN guests g ON ga.guest_id = g.id
+            LEFT JOIN hospitality_rooms hr ON ga.room_id = hr.id
+            LEFT JOIN events e ON ga.event_id = e.id
+            LEFT JOIN users u ON ga.hostess_id = u.id
+            WHERE ga.stadium_id = ?
+                AND DATE(ga.access_time) BETWEEN ? AND ?
+        ";
+
+        $params = [$stadiumId, $startDate, $endDate];
+
+        if ($roomId) {
+            $sql .= " AND ga.room_id = ?";
+            $params[] = $roomId;
+        }
+
+        if ($eventId) {
+            $sql .= " AND ga.event_id = ?";
+            $params[] = $eventId;
+        }
+
+        $sql .= " ORDER BY ga.access_time DESC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

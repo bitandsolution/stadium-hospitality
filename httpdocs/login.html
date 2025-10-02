@@ -268,7 +268,7 @@
             }, 5000);
         }
         
-        // Handle form submission
+       // Handle form submission
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -298,9 +298,21 @@
                 if (result.success) {
                     showAlert('Accesso effettuato con successo! Reindirizzamento...', 'success');
                     
-                    // Redirect after 1 second
+                    // MODIFICA QUI: Route basato sul ruolo utente
+                    const userRole = result.user.role; // Ottieni il ruolo dalla risposta
+                    
                     setTimeout(() => {
-                        window.location.href = 'dashboard.html';
+                        if (userRole === 'hostess') {
+                            console.log('Redirecting to hostess dashboard');
+                            window.location.href = 'hostess-dashboard.html';
+                        } else if (userRole === 'stadium_admin' || userRole === 'super_admin') {
+                            console.log('Redirecting to admin dashboard');
+                            window.location.href = 'dashboard.html';
+                        } else {
+                            // Fallback
+                            console.log('Unknown role, redirecting to default dashboard');
+                            window.location.href = 'dashboard.html';
+                        }
                     }, 1000);
                 } else {
                     showAlert(result.message || 'Credenziali non valide');
