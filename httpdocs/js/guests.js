@@ -11,11 +11,13 @@ const Guests = {
     guests: [],
     filters: {
         search: '',
+        event_id: '',
         room_id: '',
         vip_level: '',
         access_status: ''
     },
     rooms: [],
+    events: [],
     
     /**
      * Initialize guests page
@@ -25,8 +27,9 @@ const Guests = {
         
         // Setup event listeners
         this.setupEventListeners();
-        
-        // Load rooms for filter
+
+        // Load events and rooms
+        await this.loadEvents();
         await this.loadRooms();
         
         // Load guests
@@ -39,79 +42,182 @@ const Guests = {
     setupEventListeners() {
         // Search input with debouncing
         const searchInput = document.getElementById('searchInput');
-        let searchTimeout;
-        searchInput.addEventListener('input', (e) => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                this.filters.search = e.target.value.trim();
+        if (searchInput) {
+            let searchTimeout;
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    this.filters.search = e.target.value.trim();
+                    this.currentPage = 1;
+                    this.loadGuests();
+                }, 300);
+            });
+        }
+        
+        // Event filter
+        const eventFilter = document.getElementById('filterEvent');
+        if (eventFilter) {
+            eventFilter.addEventListener('change', (e) => {
+                this.filters.event_id = e.target.value;
                 this.currentPage = 1;
                 this.loadGuests();
-            }, 300); // 300ms debounce
-        });
+            });
+        }
         
         // Room filter
-        document.getElementById('roomFilter').addEventListener('change', (e) => {
-            this.filters.room_id = e.target.value;
-            this.currentPage = 1;
-            this.loadGuests();
-        });
+        const roomFilter = document.getElementById('roomFilter');
+        if (roomFilter) {
+            roomFilter.addEventListener('change', (e) => {
+                this.filters.room_id = e.target.value;
+                this.currentPage = 1;
+                this.loadGuests();
+            });
+        }
         
         // VIP filter
-        document.getElementById('vipFilter').addEventListener('change', (e) => {
-            this.filters.vip_level = e.target.value;
-            this.currentPage = 1;
-            this.loadGuests();
-        });
+        const vipFilter = document.getElementById('vipFilter');
+        if (vipFilter) {
+            vipFilter.addEventListener('change', (e) => {
+                this.filters.vip_level = e.target.value;
+                this.currentPage = 1;
+                this.loadGuests();
+            });
+        }
         
         // Status filter
-        document.getElementById('statusFilter').addEventListener('change', (e) => {
-            this.filters.access_status = e.target.value;
-            this.currentPage = 1;
-            this.loadGuests();
-        });
+        const statusFilter = document.getElementById('statusFilter');
+        if (statusFilter) {
+            statusFilter.addEventListener('change', (e) => {
+                this.filters.access_status = e.target.value;
+                this.currentPage = 1;
+                this.loadGuests();
+            });
+        }
+        
+        // Page size selector
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        if (pageSizeSelect) {
+            pageSizeSelect.addEventListener('change', (e) => {
+                this.pageSize = parseInt(e.target.value);
+                this.currentPage = 1;
+                this.loadGuests();
+            });
+        }
         
         // Clear filters
-        document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-            this.clearFilters();
-        });
+        const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', () => {
+                this.clearFilters();
+            });
+        }
         
         // Pagination
-        document.getElementById('prevPageBtn').addEventListener('click', () => {
-            if (this.currentPage > 1) {
-                this.currentPage--;
-                this.loadGuests();
-            }
-        });
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        if (prevPageBtn) {
+            prevPageBtn.addEventListener('click', () => {
+                if (this.currentPage > 1) {
+                    this.currentPage--;
+                    this.loadGuests();
+                }
+            });
+        }
         
-        document.getElementById('nextPageBtn').addEventListener('click', () => {
-            const totalPages = Math.ceil(this.totalGuests / this.pageSize);
-            if (this.currentPage < totalPages) {
-                this.currentPage++;
-                this.loadGuests();
-            }
-        });
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        if (nextPageBtn) {
+            nextPageBtn.addEventListener('click', () => {
+                const totalPages = Math.ceil(this.totalGuests / this.pageSize);
+                if (this.currentPage < totalPages) {
+                    this.currentPage++;
+                    this.loadGuests();
+                }
+            });
+        }
         
         // New guest button
-        document.getElementById('newGuestBtn').addEventListener('click', () => {
-            this.showEditModal(null);
-        });
+        const newGuestBtn = document.getElementById('newGuestBtn');
+        if (newGuestBtn) {
+            newGuestBtn.addEventListener('click', () => {
+                this.showEditModal(null);
+            });
+        }
         
         // Modal: Close on ESC key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 const modal = document.getElementById('editModal');
-                if (!modal.classList.contains('hidden')) {
+                if (modal && !modal.classList.contains('hidden')) {
                     this.closeEditModal();
                 }
             }
         });
         
         // Modal: Close on background click
-        document.getElementById('editModal').addEventListener('click', (e) => {
-            if (e.target.id === 'editModal') {
-                this.closeEditModal();
+        const editModal = document.getElementById('editModal');
+        if (editModal) {
+            editModal.addEventListener('click', (e) => {
+                if (e.target.id === 'editModal') {
+                    this.closeEditModal();
+                }
+            });
+        }
+    },
+
+    /**
+     * Load events for filter dropdown
+     */
+    async loadEvents() {
+        try {
+            const user = await Auth.getCurrentUser();
+            const response = await API.events.list(user.stadium_id);
+            
+            if (response.success && response.data.events) {
+                this.events = response.data.events;
+                
+                const filterEvent = document.getElementById('filterEvent');
+                if (filterEvent) {
+                    // Clear existing options (except first)
+                    filterEvent.innerHTML = '<option value="">Tutti gli eventi</option>';
+                    
+                    this.events.forEach(event => {
+                        const option = document.createElement('option');
+                        option.value = event.id;
+                        option.textContent = `${event.name} - ${this.formatDate(event.event_date)}`;
+                        filterEvent.appendChild(option);
+                    });
+                    
+                    console.log('[GUESTS] Loaded', this.events.length, 'events');
+                }
             }
-        });
+        } catch (error) {
+            console.error('[GUESTS] Failed to load events:', error);
+        }
+    },
+
+    /**
+     * Update stats header
+     */
+    updateStats(stats) {
+        if (!stats) {
+            console.log('[GUESTS] No stats to update');
+            return;
+        }
+        
+        const statTotal = document.getElementById('statTotal');
+        const statCheckedIn = document.getElementById('statCheckedIn');
+        const statPending = document.getElementById('statPending');
+        const statVip = document.getElementById('statVip');
+        
+        if (statTotal) statTotal.textContent = stats.total || 0;
+        if (statCheckedIn) statCheckedIn.textContent = stats.checked_in || 0;
+        if (statPending) statPending.textContent = stats.pending || 0;
+        
+        if (statVip && stats.vip_counts) {
+            const vipCount = (stats.vip_counts.vip || 0) + (stats.vip_counts.ultra_vip || 0);
+            statVip.textContent = vipCount;
+        }
+        
+        console.log('[GUESTS] Stats updated:', stats);
     },
     
     /**
@@ -136,14 +242,19 @@ const Guests = {
                 
                 // Populate room filter
                 const roomFilter = document.getElementById('roomFilter');
-                this.rooms.forEach(room => {
-                    const option = document.createElement('option');
-                    option.value = room.id;
-                    option.textContent = room.name;
-                    roomFilter.appendChild(option);
-                });
-                
-                console.log('[GUESTS] Loaded', this.rooms.length, 'rooms');
+                if (roomFilter) {
+                    // Clear existing options (except first)
+                    roomFilter.innerHTML = '<option value="">Tutte le sale</option>';
+                    
+                    this.rooms.forEach(room => {
+                        const option = document.createElement('option');
+                        option.value = room.id;
+                        option.textContent = room.name;
+                        roomFilter.appendChild(option);
+                    });
+                    
+                    console.log('[GUESTS] Loaded', this.rooms.length, 'rooms');
+                }
             }
         } catch (error) {
             console.error('[GUESTS] Failed to load rooms:', error);
@@ -160,9 +271,13 @@ const Guests = {
             const startTime = Date.now();
             
             // Show loading
-            document.getElementById('loadingState').classList.remove('hidden');
-            document.getElementById('guestsTableContainer').classList.add('hidden');
-            document.getElementById('emptyState').classList.add('hidden');
+            const loadingState = document.getElementById('loadingState');
+            const tableContainer = document.getElementById('guestsTableContainer');
+            const emptyState = document.getElementById('emptyState');
+            
+            if (loadingState) loadingState.classList.remove('hidden');
+            if (tableContainer) tableContainer.classList.add('hidden');
+            if (emptyState) emptyState.classList.add('hidden');
             
             // Build query params
             const params = {
@@ -170,15 +285,14 @@ const Guests = {
                 offset: (this.currentPage - 1) * this.pageSize
             };
             
-            // Add filters
             if (this.filters.search) params.q = this.filters.search;
+            if (this.filters.event_id) params.event_id = this.filters.event_id;
             if (this.filters.room_id) params.room_id = this.filters.room_id;
             if (this.filters.vip_level) params.vip_level = this.filters.vip_level;
             if (this.filters.access_status) params.access_status = this.filters.access_status;
             
             console.log('[GUESTS] API params:', params);
             
-            // Call API
             const response = await API.guests.search(params);
             
             const executionTime = Date.now() - startTime;
@@ -188,31 +302,40 @@ const Guests = {
                 this.guests = response.data.guests;
                 this.totalGuests = response.data.pagination?.total_count || response.data.guests.length;
                 
-                // Update UI
+                // Update stats - VERIFICA QUI
+                if (response.data.stats) {
+                    console.log('[GUESTS] Updating stats:', response.data.stats);
+                    this.updateStats(response.data.stats);
+                } else {
+                    console.warn('[GUESTS] No stats in response');
+                }
+                
                 this.renderGuestsTable();
                 this.updatePagination();
                 this.updateResultsCount(executionTime);
                 
-                // Show table or empty state
                 if (this.guests.length > 0) {
-                    document.getElementById('guestsTableContainer').classList.remove('hidden');
+                    if (tableContainer) tableContainer.classList.remove('hidden');
                 } else {
-                    document.getElementById('emptyState').classList.remove('hidden');
+                    if (emptyState) emptyState.classList.remove('hidden');
                 }
             } else {
                 console.error('[GUESTS] API error:', response);
                 this.guests = [];
                 this.totalGuests = 0;
-                document.getElementById('emptyState').classList.remove('hidden');
+                if (emptyState) emptyState.classList.remove('hidden');
             }
             
-            // Hide loading
-            document.getElementById('loadingState').classList.add('hidden');
+            if (loadingState) loadingState.classList.add('hidden');
             
         } catch (error) {
             console.error('[GUESTS] Failed to load guests:', error);
-            document.getElementById('loadingState').classList.add('hidden');
-            document.getElementById('emptyState').classList.remove('hidden');
+            
+            const loadingState = document.getElementById('loadingState');
+            const emptyState = document.getElementById('emptyState');
+            
+            if (loadingState) loadingState.classList.add('hidden');
+            if (emptyState) emptyState.classList.remove('hidden');
             
             if (typeof Utils !== 'undefined') {
                 Utils.showToast('Errore nel caricamento degli ospiti', 'error');
@@ -225,6 +348,11 @@ const Guests = {
      */
     renderGuestsTable() {
         const tbody = document.getElementById('guestsTableBody');
+        if (!tbody) {
+            console.error('[GUESTS] Table body not found');
+            return;
+        }
+        
         tbody.innerHTML = '';
         
         this.guests.forEach(guest => {
@@ -283,22 +411,32 @@ const Guests = {
         const start = (this.currentPage - 1) * this.pageSize + 1;
         const end = Math.min(this.currentPage * this.pageSize, this.totalGuests);
         
-        document.getElementById('pageStart').textContent = start;
-        document.getElementById('pageEnd').textContent = end;
-        document.getElementById('pageTotal').textContent = this.totalGuests;
-        document.getElementById('pageInfo').textContent = `Pagina ${this.currentPage} di ${totalPages || 1}`;
+        const pageStart = document.getElementById('pageStart');
+        const pageEnd = document.getElementById('pageEnd');
+        const pageTotal = document.getElementById('pageTotal');
+        const pageInfo = document.getElementById('pageInfo');
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+        
+        if (pageStart) pageStart.textContent = start;
+        if (pageEnd) pageEnd.textContent = end;
+        if (pageTotal) pageTotal.textContent = this.totalGuests;
+        if (pageInfo) pageInfo.textContent = `Pagina ${this.currentPage} di ${totalPages || 1}`;
         
         // Enable/disable buttons
-        document.getElementById('prevPageBtn').disabled = this.currentPage <= 1;
-        document.getElementById('nextPageBtn').disabled = this.currentPage >= totalPages;
+        if (prevBtn) prevBtn.disabled = this.currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = this.currentPage >= totalPages;
     },
     
     /**
      * Update results count
      */
     updateResultsCount(executionTime) {
-        document.getElementById('resultsCount').textContent = this.totalGuests;
-        document.getElementById('searchTime').textContent = executionTime ? `(${executionTime}ms)` : '';
+        const resultsCount = document.getElementById('resultsCount');
+        const searchTime = document.getElementById('searchTime');
+        
+        if (resultsCount) resultsCount.textContent = this.totalGuests;
+        if (searchTime) searchTime.textContent = executionTime ? `(${executionTime}ms)` : '';
     },
     
     /**
@@ -307,18 +445,49 @@ const Guests = {
     clearFilters() {
         this.filters = {
             search: '',
+            event_id: '',
             room_id: '',
             vip_level: '',
             access_status: ''
         };
         
-        document.getElementById('searchInput').value = '';
-        document.getElementById('roomFilter').value = '';
-        document.getElementById('vipFilter').value = '';
-        document.getElementById('statusFilter').value = '';
+        const searchInput = document.getElementById('searchInput');
+        const eventFilter = document.getElementById('filterEvent');
+        const roomFilter = document.getElementById('roomFilter');
+        const vipFilter = document.getElementById('vipFilter');
+        const statusFilter = document.getElementById('statusFilter');
+        
+        if (searchInput) searchInput.value = '';
+        if (eventFilter) eventFilter.value = '';
+        if (roomFilter) roomFilter.value = '';
+        if (vipFilter) vipFilter.value = '';
+        if (statusFilter) statusFilter.value = '';
         
         this.currentPage = 1;
         this.loadGuests();
+    },
+    
+    /**
+     * Format date helper
+     */
+    formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+    },
+    
+    /**
+     * Close edit modal
+     */
+    closeEditModal() {
+        const modal = document.getElementById('editModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.innerHTML = '';
+        }
     },
     
     /**
@@ -326,47 +495,35 @@ const Guests = {
      */
     async showEditModal(guestId) {
         console.log('[GUESTS] Opening edit modal for guest:', guestId);
-        
+
         try {
             let guest = null;
             
-            // Load guest data if editing existing guest
+            // Load guest data if editing
             if (guestId) {
                 const response = await API.guests.get(guestId);
-                if (response.success && response.data.guest) {
-                    guest = response.data.guest;
-                } else {
+                if (!response.success || !response.data.guest) {
                     alert('Errore nel caricamento dei dati ospite');
                     return;
                 }
+                guest = response.data.guest;
+                console.log('[GUESTS] Guest loaded:', guest);
             }
             
-            // Load events and rooms for selects (needed for new guest)
+            // Load events and rooms for new guest
             let eventsHtml = '<option value="">Seleziona evento...</option>';
             let roomsHtml = '<option value="">Seleziona sala...</option>';
             
             if (!guest) {
                 // Load events
-                try {
-                    const user = Auth.getUser();
-                    const stadiumId = user.stadium_id;
-                    
-                    if (stadiumId) {
-                        const eventsResp = await API.events.list(stadiumId);
-                        if (eventsResp.success && eventsResp.data.events) {
-                            eventsResp.data.events.forEach(event => {
-                                eventsHtml += `<option value="${event.id}">${this.escapeHtml(event.name)} - ${this.formatDate(event.event_date)}</option>`;
-                            });
-                        }
-                        
-                        // Rooms already loaded
-                        this.rooms.forEach(room => {
-                            roomsHtml += `<option value="${room.id}">${this.escapeHtml(room.name)}</option>`;
-                        });
-                    }
-                } catch (error) {
-                    console.error('[GUESTS] Failed to load events/rooms:', error);
-                }
+                this.events.forEach(event => {
+                    eventsHtml += `<option value="${event.id}">${this.escapeHtml(event.name)} - ${this.formatDate(event.event_date)}</option>`;
+                });
+                
+                // Load rooms
+                this.rooms.forEach(room => {
+                    roomsHtml += `<option value="${room.id}">${this.escapeHtml(room.name)}</option>`;
+                });
             }
             
             // Create modal HTML
@@ -391,7 +548,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Evento <span class="text-red-500">*</span>
                                 </label>
-                                <select id="event_id" name="event_id" required
+                                <select id="editEventId" name="event_id" required
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                                     ${eventsHtml}
                                 </select>
@@ -402,7 +559,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Sala <span class="text-red-500">*</span>
                                 </label>
-                                <select id="room_id" name="room_id" required
+                                <select id="editRoomId" name="room_id" required
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                                     ${roomsHtml}
                                 </select>
@@ -422,7 +579,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Nome <span class="text-red-500">*</span>
                                 </label>
-                                <input type="text" id="first_name" name="first_name" required
+                                <input type="text" id="editFirstName" name="first_name" required
                                     value="${guest ? this.escapeHtml(guest.first_name) : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -432,7 +589,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Cognome <span class="text-red-500">*</span>
                                 </label>
-                                <input type="text" id="last_name" name="last_name" required
+                                <input type="text" id="editLastName" name="last_name" required
                                     value="${guest ? this.escapeHtml(guest.last_name) : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -442,7 +599,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Azienda
                                 </label>
-                                <input type="text" id="company_name" name="company_name"
+                                <input type="text" id="editCompanyName" name="company_name"
                                     value="${guest ? this.escapeHtml(guest.company_name || '') : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -452,7 +609,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Email
                                 </label>
-                                <input type="email" id="contact_email" name="contact_email"
+                                <input type="email" id="editContactEmail" name="contact_email"
                                     value="${guest ? this.escapeHtml(guest.contact_email || '') : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -462,7 +619,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Telefono
                                 </label>
-                                <input type="tel" id="contact_phone" name="contact_phone"
+                                <input type="tel" id="editContactPhone" name="contact_phone"
                                     value="${guest ? this.escapeHtml(guest.contact_phone || '') : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -472,7 +629,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Numero Tavolo
                                 </label>
-                                <input type="text" id="table_number" name="table_number"
+                                <input type="text" id="editTableNumber" name="table_number"
                                     value="${guest ? this.escapeHtml(guest.table_number || '') : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -482,7 +639,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Numero Posto
                                 </label>
-                                <input type="text" id="seat_number" name="seat_number"
+                                <input type="text" id="editSeatNumber" name="seat_number"
                                     value="${guest ? this.escapeHtml(guest.seat_number || '') : ''}"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
@@ -492,7 +649,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Livello VIP <span class="text-red-500">*</span>
                                 </label>
-                                <select id="vip_level" name="vip_level" required
+                                <select id="editVipLevel" name="vip_level" required
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                                     <option value="standard" ${!guest || guest.vip_level === 'standard' ? 'selected' : ''}>Standard</option>
                                     <option value="premium" ${guest && guest.vip_level === 'premium' ? 'selected' : ''}>Premium</option>
@@ -506,7 +663,7 @@ const Guests = {
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Note
                                 </label>
-                                <textarea id="notes" name="notes" rows="3"
+                                <textarea id="editNotes" name="notes" rows="3"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${guest ? this.escapeHtml(guest.notes || '') : ''}</textarea>
                             </div>
                             
@@ -537,39 +694,18 @@ const Guests = {
             // Focus first input
             setTimeout(() => {
                 if (guest) {
-                    document.getElementById('first_name').focus();
+                    document.getElementById('editFirstName').focus();
                 } else {
-                    document.getElementById('event_id').focus();
+                    document.getElementById('editEventId').focus();
                 }
             }, 100);
             
         } catch (error) {
             console.error('[GUESTS] Failed to show edit modal:', error);
-            alert('Errore nell\'apertura del modulo di modifica');
+            alert('Errore nell\'apertura del modulo: ' + error.message);
         }
     },
-    
-    /**
-     * Format date helper
-     */
-    formatDate(dateString) {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
-    },
-    
-    /**
-     * Close edit modal
-     */
-    closeEditModal() {
-        const modal = document.getElementById('editModal');
-        modal.classList.add('hidden');
-        modal.innerHTML = '';
-    },
-    
+
     /**
      * Save guest (create or update)
      */
@@ -579,21 +715,21 @@ const Guests = {
             
             // Get form data
             const formData = {
-                first_name: document.getElementById('first_name').value.trim(),
-                last_name: document.getElementById('last_name').value.trim(),
-                company_name: document.getElementById('company_name').value.trim(),
-                contact_email: document.getElementById('contact_email').value.trim(),
-                contact_phone: document.getElementById('contact_phone').value.trim(),
-                table_number: document.getElementById('table_number').value.trim(),
-                seat_number: document.getElementById('seat_number').value.trim(),
-                vip_level: document.getElementById('vip_level').value,
-                notes: document.getElementById('notes').value.trim()
+                first_name: document.getElementById('editFirstName').value.trim(),
+                last_name: document.getElementById('editLastName').value.trim(),
+                company_name: document.getElementById('editCompanyName').value.trim(),
+                contact_email: document.getElementById('editContactEmail').value.trim(),
+                contact_phone: document.getElementById('editContactPhone').value.trim(),
+                table_number: document.getElementById('editTableNumber').value.trim(),
+                seat_number: document.getElementById('editSeatNumber').value.trim(),
+                vip_level: document.getElementById('editVipLevel').value,
+                notes: document.getElementById('editNotes').value.trim()
             };
             
             // Add event_id and room_id for new guest
             if (!guestId) {
-                const eventId = document.getElementById('event_id');
-                const roomId = document.getElementById('room_id');
+                const eventId = document.getElementById('editEventId');
+                const roomId = document.getElementById('editRoomId');
                 
                 if (eventId) formData.event_id = parseInt(eventId.value);
                 if (roomId) formData.room_id = parseInt(roomId.value);
@@ -643,9 +779,9 @@ const Guests = {
             let response;
             if (guestId) {
                 // Update existing guest
-                response = await API.guests.update(guestId, formData);
+                response = await API.guests.admin.update(guestId, formData);
             } else {
-                // Create new guest (admin only)
+                // Create new guest
                 response = await API.guests.admin.create(formData);
             }
             
@@ -685,7 +821,7 @@ const Guests = {
             alert('Errore nel salvataggio dell\'ospite: ' + error.message);
         }
     },
-    
+
     /**
      * Validate email format
      */
@@ -693,7 +829,7 @@ const Guests = {
         const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         return re.test(email);
     },
-    
+
     /**
      * Show guest details
      */
@@ -707,17 +843,28 @@ const Guests = {
                 alert(`Dettagli Ospite:\n\n` +
                     `Nome: ${guest.first_name} ${guest.last_name}\n` +
                     `Azienda: ${guest.company_name || '-'}\n` +
-                    `Sala: ${guest.room_name}\n` +
-                    `Tavolo: ${guest.table_number}\n` +
+                    `Evento: ${guest.event_name || '-'}\n` +
+                    `Sala: ${guest.room_name || '-'}\n` +
+                    `Tavolo: ${guest.table_number || '-'}\n` +
+                    `Posto: ${guest.seat_number || '-'}\n` +
                     `VIP: ${guest.vip_level}\n` +
                     `Email: ${guest.contact_email || '-'}\n` +
-                    `Telefono: ${guest.contact_phone || '-'}`
+                    `Telefono: ${guest.contact_phone || '-'}\n` +
+                    `Note: ${guest.notes || '-'}`
                 );
             }
         } catch (error) {
             console.error('[GUESTS] Failed to get guest details:', error);
             alert('Errore nel caricamento dei dettagli');
         }
+    },
+    
+    /**
+     * Show guest details (placeholder)
+     */
+    async showGuestDetails(guestId) {
+        console.log('[GUESTS] Show details for guest:', guestId);
+        alert('Dettagli ospite in fase di implementazione');
     },
     
     /**

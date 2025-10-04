@@ -138,13 +138,21 @@
                             >
                         </div>
                         
-                        <!-- Room Filter -->
+                        <!-- Filtro Evento (NUOVO) -->
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Sala
-                            </label>
-                            <select id="roomFilter" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Evento</label>
+                            <select id="filterEvent" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                                <option value="">Tutti gli eventi</option>
+                                <!-- Popolato dinamicamente -->
+                            </select>
+                        </div>
+                        
+                        <!-- Filtro Sala -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Sala</label>
+                            <select id="roomFilter" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
                                 <option value="">Tutte le sale</option>
+                                <!-- Popolato dinamicamente -->
                             </select>
                         </div>
                         
@@ -188,6 +196,57 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Stats Header (NUOVO - prima della tabella) -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-white rounded-lg shadow-sm p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-600">Totali</p>
+                                <p class="text-2xl font-bold text-gray-900" id="statTotal">-</p>
+                            </div>
+                            <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <i data-lucide="users" class="w-6 h-6 text-blue-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-sm p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-600">Check-in</p>
+                                <p class="text-2xl font-bold text-green-600" id="statCheckedIn">-</p>
+                            </div>
+                            <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                                <i data-lucide="check-circle" class="w-6 h-6 text-green-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-sm p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-600">In Attesa</p>
+                                <p class="text-2xl font-bold text-orange-600" id="statPending">-</p>
+                            </div>
+                            <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                                <i data-lucide="clock" class="w-6 h-6 text-orange-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-sm p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-600">VIP/Ultra VIP</p>
+                                <p class="text-2xl font-bold text-purple-600" id="statVip">-</p>
+                            </div>
+                            <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                                <i data-lucide="star" class="w-6 h-6 text-purple-600"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>                
                 
                 <!-- Loading State -->
                 <div id="loadingState" class="bg-white rounded-lg shadow p-12 text-center">
@@ -243,6 +302,24 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="flex items-center justify-between mt-6">
+                    <!-- Dropdown page size (NUOVO) -->
+                    <div class="flex items-center space-x-2">
+                        <label class="text-sm text-gray-600">Mostra:</label>
+                        <select id="pageSizeSelect" class="border border-gray-300 rounded-lg px-3 py-1 text-sm">
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                        <span class="text-sm text-gray-600">per pagina</span>
+                    </div>
+                    
+                    <!-- Pagination buttons esistenti -->
+                    <div id="paginationContainer">
+                        <!-- ... bottoni esistenti -->
+                    </div>
+                </div>
                 
                 <!-- Empty State -->
                 <div id="emptyState" class="hidden bg-white rounded-lg shadow p-12 text-center">
@@ -272,6 +349,27 @@
     <script src="js/api.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/guests.js"></script>
+
+    <script>
+        // Block hostess access
+        (async () => {
+            if (!Auth.isAuthenticated()) {
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            try {
+                const user = await Auth.getCurrentUser();
+                if (user.role === 'hostess') {
+                    alert('Accesso non autorizzato. Reindirizzamento...');
+                    window.location.href = 'hostess-dashboard.html';
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                window.location.href = 'login.html';
+            }
+        })();
+    </script>
     
     <script>
         lucide.createIcons();

@@ -718,6 +718,44 @@ try {
     }
 
     // =====================================================
+    // STATISTICS DASHBOARD
+    // =====================================================
+    elseif ($path === '/api/dashboard/stats' && $method === 'GET') {
+        try {
+            $controller = new Hospitality\Controllers\DashboardController();
+            $controller->stats();
+        } catch (Exception $e) {
+            error_log("Dashboard stats error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Failed to load stats',
+                'timestamp' => date('c')
+            ]);
+        }
+        $routed = true;
+    }
+
+    // =====================================================
+    // UPCOMING EVENTS
+    // =====================================================
+    elseif ($path === '/api/dashboard/upcoming-events' && $method === 'GET') {
+        try {
+            $controller = new Hospitality\Controllers\DashboardController();
+            $controller->upcomingEvents();
+        } catch (Exception $e) {
+            error_log("Dashboard events error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Failed to load events',
+                'timestamp' => date('c')
+            ]);
+        }
+        $routed = true;
+    }
+
+    // =====================================================
     // USER ROUTES (placeholder)
     // =====================================================
     

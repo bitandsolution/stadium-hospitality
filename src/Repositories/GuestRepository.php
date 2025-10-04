@@ -195,6 +195,18 @@ class GuestRepository {
     }
 
     /**
+     * Get assigned room IDs for a hostess
+     */
+    public function getHostessAssignedRooms(int $userId): array {
+        $stmt = $this->db->prepare("
+            SELECT room_id FROM user_room_assignments 
+            WHERE user_id = ? AND is_active = 1
+        ");
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    /**
      * Trova ospite per ID con dettagli completi
      */
     public function findById(int $guestId, ?int $stadiumId = null): ?array {

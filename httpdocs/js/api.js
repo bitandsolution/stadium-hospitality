@@ -284,7 +284,7 @@ const API = {
         /**
          * Get guest by ID
          */
-        getById: async (id) => {
+        get: async (id) => {  // ✅ Rinominato da getById
             return await API.get(`/guests/${id}`);
         },
         
@@ -350,7 +350,20 @@ const API = {
             }
         }
     },
-       
+    
+    // ===================================
+    // API ENDPOINTS - Dashboard
+    // ===================================
+
+    dashboard: { 
+        stats: async (stadiumId) => {
+            return await API.get('/dashboard/stats', { stadium_id: stadiumId });
+        },
+        upcomingEvents: async (stadiumId) => {
+            return await API.get('/dashboard/upcoming-events', { stadium_id: stadiumId });
+        }
+    },
+
     // ===================================
     // API ENDPOINTS - System
     // ===================================

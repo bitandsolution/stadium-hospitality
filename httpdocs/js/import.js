@@ -251,9 +251,9 @@ const ImportPage = {
             }
             
             console.log('[IMPORT] Starting import...');
-            console.log('Event ID:', this.selectedEventId);
-            console.log('Stadium ID:', this.stadiumId);
-            console.log('File:', this.selectedFile.name);
+            console.log('[IMPORT] Event ID:', this.selectedEventId);
+            console.log('[IMPORT] Stadium ID:', this.stadiumId);
+            console.log('[IMPORT] File:', this.selectedFile.name);
             
             // Show progress
             document.getElementById('progressSection').classList.remove('hidden');
@@ -261,11 +261,17 @@ const ImportPage = {
             // Simulate upload progress
             this.simulateProgress();
             
+            const additionalData = {
+                event_id: this.selectedEventId,
+                stadium_id: this.stadiumId
+            };
+            
+            console.log('[IMPORT] Additional data:', additionalData);
+            
             // Call API
             const response = await API.guests.admin.import(
                 this.selectedFile,
-                this.selectedEventId,
-                this.stadiumId
+                additionalData  // ← Oggetto con tutti i parametri
             );
             
             console.log('[IMPORT] Import response:', response);
@@ -289,7 +295,12 @@ const ImportPage = {
                     Utils.showToast(`${imported} ospiti importati con successo!`, 'success', 5000);
                 }
             } else {
-                alert('Errore durante l\'import:\n\n' + (response.message || 'Errore sconosciuto'));
+                // Mostra dettagli errore
+                const errorMsg = response.message || 'Errore sconosciuto';
+                const details = response.details ? '\n\nDettagli: ' + JSON.stringify(response.details) : '';
+                alert('Errore durante l\'import:\n\n' + errorMsg + details);
+                
+                console.error('[IMPORT] Import failed:', response);
             }
             
         } catch (error) {

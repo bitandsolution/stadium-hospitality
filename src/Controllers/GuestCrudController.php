@@ -330,73 +330,84 @@ class GuestCrudController {
             $decoded = AuthMiddleware::handle();
             if (!$decoded) return;
 
-            if (!RoleMiddleware::requireRole('stadium_admin')) return;
-
-            $eventId = $_GET['event_id'] ?? null;
+            // Get filters
+            $stadiumId = TenantMiddleware::getStadiumIdForQuery();
+            $eventId = $_GET['event_id'] ?? null; // OPZIONALE ora
             $roomId = $_GET['room_id'] ?? null;
             $vipLevel = $_GET['vip_level'] ?? null;
-            $limit = min((int)($_GET['limit'] ?? 100), 500);
-            $offset = max((int)($_GET['offset'] ?? 0), 0);
+            $accessStatus = $_GET['access_status'] ?? null;
+            $searchQuery = $_GET['search'] ?? null;
+            
+            // Pagination
+            $page = max(1, (int)($_GET['page'] ?? 1));
+            $limit = min(200, max(10, (int)($_GET['limit'] ?? 50)));
+            $offset = ($page - 1) * $limit;
 
-            if (!$eventId) {
-                $this->sendError('event_id parameter is required', [], 422);
-                return;
-            }
+            // Build filters
+            $filters = [
+                'stadium_id' => $stadiumId,
+                'limit' => $limit,
+                'offset' => $offset
+            ];
 
-            // Validate event access
-            $stmt = $this->db->prepare("SELECT stadium_id FROM events WHERE id = ? AND is_active = 1");
-            $stmt->execute([$eventId]);
-            $event = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($eventId) $filters['event_id'] = (int)$eventId;
+            if ($roomId) $filters['room_ids'] = (int)$roomId;
+            if ($vipLevel) $filters['vip_level'] = $vipLevel;
+            if ($accessStatus) $filters['access_status'] = $accessStatus;
+            if ($searchQuery) $filters['search_query'] = $searchQuery;
 
-            if (!$event) {
-                $this->sendError('Event not found', [], 404);
-                return;
-            }
-
-            if (!TenantMiddleware::validateStadiumAccess($event['stadium_id'])) return;
-
-            // Build query
-            $sql = "
-                SELECT g.*, hr.name as room_name, e.name as event_name
-                FROM guests g
-                JOIN hospitality_rooms hr ON g.room_id = hr.id
-                JOIN events e ON g.event_id = e.id
-                WHERE g.event_id = ? AND g.is_active = 1
-            ";
-            $params = [$eventId];
-
-            if ($roomId) {
-                $sql .= " AND g.room_id = ?";
-                $params[] = $roomId;
-            }
-
-            if ($vipLevel) {
-                $sql .= " AND g.vip_level = ?";
-                $params[] = $vipLevel;
-            }
-
-            $sql .= " ORDER BY g.last_name, g.first_name LIMIT ? OFFSET ?";
-            $params[] = $limit;
-            $params[] = $offset;
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $guests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Get guests
+            $guestRepo = new \Hospitality\Repositories\GuestRepository();
+            $result = $guestRepo->searchGuests($filters);
+            
+            // Get total count
+            $totalCount = $guestRepo->countGuests($filters);
 
             $this->sendSuccess([
-                'guests' => $guests,
-                'total' => count($guests),
-                'event_id' => (int)$eventId,
-                'filters' => array_filter([
-                    'room_id' => $roomId,
-                    'vip_level' => $vipLevel
-                ])
+                'guests' => $result['results'],
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $totalCount,
+                    'total_pages' => ceil($totalCount / $limit),
+                    'has_more' => $result['has_more']
+                ],
+                'stats' => $this->calculateStats($result['results'])
             ]);
 
         } catch (Exception $e) {
-            Logger::error('Guest list failed', ['error' => $e->getMessage()]);
+            Logger::error('Failed to list guests', ['error' => $e->getMessage()]);
             $this->sendError('Failed to retrieve guests', [], 500);
         }
+    }
+
+    private function calculateStats(array $guests): array {
+        $stats = [
+            'total' => count($guests),
+            'checked_in' => 0,
+            'pending' => 0,
+            'vip_counts' => [
+                'ultra_vip' => 0,
+                'vip' => 0,
+                'premium' => 0,
+                'standard' => 0
+            ]
+        ];
+
+        foreach ($guests as $guest) {
+            if ($guest['access_status'] === 'checked_in') {
+                $stats['checked_in']++;
+            } else {
+                $stats['pending']++;
+            }
+            
+            $vipLevel = $guest['vip_level'] ?? 'standard';
+            if (isset($stats['vip_counts'][$vipLevel])) {
+                $stats['vip_counts'][$vipLevel]++;
+            }
+        }
+
+        return $stats;
     }
 
     private function getJsonInput(): array {

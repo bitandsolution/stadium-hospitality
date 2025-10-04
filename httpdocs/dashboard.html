@@ -168,7 +168,7 @@
                 <div id="dashboardContent" class="hidden">
                     
                     <!-- Stats Grid -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
                         
                         <!-- Stat Card 1 - Total Guests -->
                         <div class="stat-card bg-white rounded-lg shadow p-6">
@@ -197,8 +197,22 @@
                             <h3 class="text-2xl font-bold text-gray-900" id="statCheckedIn">0</h3>
                             <p class="text-sm text-gray-500 mt-1">Check-in Effettuati</p>
                         </div>
+
+                        <!-- Stat Card 3 - Card Pending -->
+                        <div class="stat-card bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                                    <i data-lucide="clock" class="w-6 h-6 text-orange-600"></i>
+                                </div>
+                                <span class="text-xs font-medium text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                    Total
+                                </span>
+                            </div>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statPending">0</h3>
+                            <p class="text-sm text-gray-500 mt-1">In Attesa</p>
+                        </div>
                         
-                        <!-- Stat Card 3 - Events -->
+                        <!-- Stat Card 4 - Events -->
                         <div class="stat-card bg-white rounded-lg shadow p-6">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -208,11 +222,11 @@
                                     Active
                                 </span>
                             </div>
-                            <h3 class="text-2xl font-bold text-gray-900" id="statEvents">0</h3>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statActiveEvents">0</h3>
                             <p class="text-sm text-gray-500 mt-1">Eventi Attivi</p>
                         </div>
                         
-                        <!-- Stat Card 4 - Rooms -->
+                        <!-- Stat Card 5 - Rooms -->
                         <div class="stat-card bg-white rounded-lg shadow p-6">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -222,7 +236,7 @@
                                     Total
                                 </span>
                             </div>
-                            <h3 class="text-2xl font-bold text-gray-900" id="statRooms">0</h3>
+                            <h3 class="text-2xl font-bold text-gray-900" id="statTotalRooms">0</h3>
                             <p class="text-sm text-gray-500 mt-1">Sale Hospitality</p>
                         </div>
                         

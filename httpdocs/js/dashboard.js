@@ -12,6 +12,8 @@ const Dashboard = {
         if (CONFIG.DEBUG) {
             console.log('[DASHBOARD] Initializing...');
         }
+
+        const user = Auth.getUser();
         
         // Load user info
         this.loadUserInfo();
@@ -24,6 +26,12 @@ const Dashboard = {
         
         // Load dashboard data
         await this.loadDashboardData();
+        
+        // Load stats
+        await this.loadStats(user.stadium_id);
+
+        await this.loadUpcomingEvents(user.stadium_id);
+
     },
     
     /**
@@ -45,6 +53,129 @@ const Dashboard = {
         // Stadium name in header
         const stadiumName = user.stadium_name || 'Multi-Stadio';
         document.getElementById('stadiumName').textContent = stadiumName;
+    },
+
+    /**
+     * Load statistics
+     */
+    async loadStats(stadiumId) {
+        try {
+            console.log('[DASHBOARD] Loading stats for stadium:', stadiumId);
+            
+            const response = await API.dashboard.stats(stadiumId);
+            
+            console.log('[DASHBOARD] Stats response:', response);
+            
+            if (response.success) {
+                const stats = response.data;
+                
+                console.log('[DASHBOARD] Stats data:', stats);
+                
+                // Update con controlli null
+                const elements = {
+                    statTotalGuests: stats.total_guests,
+                    statCheckedIn: stats.checked_in,
+                    statPending: stats.pending,
+                    statActiveEvents: stats.active_events,
+                    statTotalRooms: stats.total_rooms
+                };
+                
+                for (const [id, value] of Object.entries(elements)) {
+                    const element = document.getElementById(id);
+                    if (element) {
+                        element.textContent = value || 0;
+                    } else {
+                        console.warn('[DASHBOARD] Element not found:', id);
+                    }
+                }
+                
+                console.log('[DASHBOARD] Stats updated successfully');
+            } else {
+                console.error('[DASHBOARD] Stats response error:', response);
+            }
+        } catch (error) {
+            console.error('[DASHBOARD] Failed to load stats:', error);
+        }
+    },
+
+    /**
+     * Load upcoming events
+     */
+    async loadUpcomingEvents(stadiumId) {
+        try {
+            const response = await API.dashboard.upcomingEvents(stadiumId);
+            
+            if (response.success) {
+                this.renderUpcomingEvents(response.data.events);
+            } else {
+                document.getElementById('upcomingEvents').innerHTML = `
+                    <p class="text-sm text-red-500 text-center py-8">Errore: ${response.message}</p>
+                `;
+            }
+        } catch (error) {
+            console.error('[DASHBOARD] Failed to load events:', error);
+            document.getElementById('upcomingEvents').innerHTML = `
+                <p class="text-sm text-red-500 text-center py-8">Errore caricamento eventi</p>
+            `;
+        }
+    },
+
+
+    renderUpcomingEvents(events) {
+        const container = document.getElementById('upcomingEvents');
+        
+        if (!container) {
+            console.error('[DASHBOARD] Container upcomingEvents not found');
+            return;
+        }
+        
+        if (!events || events.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8 text-gray-500">
+                    <i data-lucide="calendar-x" class="w-12 h-12 mx-auto mb-2 text-gray-400"></i>
+                    <p>Nessun evento in programma</p>
+                </div>
+            `;
+            lucide.createIcons();
+            return;
+        }
+        
+        container.innerHTML = events.map(event => {
+            const guestsCount = event.total_guests || 0;
+            const roomsCount = event.total_rooms || 0;
+            const checkinCount = event.total_checkins || 0;
+            
+            return `
+                <div class="border-l-4 border-purple-500 pl-4 py-3 hover:bg-gray-50 rounded-r transition">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-medium text-gray-900">${this.escapeHtml(event.name)}</h4>
+                            <p class="text-sm text-gray-600">
+                                ${this.formatDate(event.event_date)}
+                                ${event.event_time ? ' - ' + event.event_time.substring(0, 5) : ''}
+                            </p>
+                            ${event.opponent_team ? `<p class="text-sm text-gray-500">vs ${this.escapeHtml(event.opponent_team)}</p>` : ''}
+                        </div>
+                        <div class="text-right">
+                            <p class="text-2xl font-bold text-purple-600">${guestsCount}</p>
+                            <p class="text-xs text-gray-500">ospiti</p>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex gap-4 text-sm text-gray-600">
+                        <span class="flex items-center">
+                            <i data-lucide="door-open" class="w-4 h-4 inline mr-1"></i>
+                            ${roomsCount} sale
+                        </span>
+                        <span class="flex items-center">
+                            <i data-lucide="check-circle" class="w-4 h-4 inline mr-1"></i>
+                            ${checkinCount} check-in
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        lucide.createIcons();
     },
     
     /**
@@ -87,6 +218,29 @@ const Dashboard = {
             }
         });
     },
+
+    /**
+     * Format date
+     */
+    formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('it-IT', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        });
+    },
+
+    /**
+     * Escape HTML
+     */
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
     
     /**
      * Load dashboard data
@@ -112,12 +266,12 @@ const Dashboard = {
             }
             
             // Load upcoming events (with error handling)
-            try {
-                await this.loadUpcomingEvents(stadiumId);
-            } catch (error) {
-                console.error('[DASHBOARD] Failed to load events:', error);
-                // Continue anyway
-            }
+            // try {
+            //     await this.loadUpcomingEvents(stadiumId);
+            // } catch (error) {
+            //     console.error('[DASHBOARD] Failed to load events:', error);
+            //     // Continue anyway
+            // }
             
             // Show content
             document.getElementById('loadingState').classList.add('hidden');
@@ -251,109 +405,11 @@ const Dashboard = {
         
         document.getElementById('statTotalGuests').textContent = formatNumber(stats.totalGuests || 0);
         document.getElementById('statCheckedIn').textContent = formatNumber(stats.checkedIn || 0);
-        document.getElementById('statEvents').textContent = formatNumber(stats.events || 0);
-        document.getElementById('statRooms').textContent = formatNumber(stats.rooms || 0);
-    },
-    
-    /**
-     * Load upcoming events
-     */
-    async loadUpcomingEvents(stadiumId) {
-        console.log('[DASHBOARD] Loading upcoming events for stadium:', stadiumId);
-        
-        try {
-            const role = Auth.getRole();
-            
-            // Check if API is available
-            if (typeof API === 'undefined' || !API.events) {
-                console.warn('[DASHBOARD] Events API not available');
-                document.getElementById('upcomingEvents').innerHTML = `
-                    <p class="text-sm text-gray-500 text-center py-8">
-                        Funzionalità eventi in arrivo
-                    </p>
-                `;
-                return;
-            }
-            
-            let eventsData;
-            if (role === 'super_admin' && !stadiumId) {
-                // For super admin without specific stadium, show message
-                document.getElementById('upcomingEvents').innerHTML = `
-                    <p class="text-sm text-gray-500 text-center py-8">
-                        Seleziona uno stadio specifico per vedere gli eventi
-                    </p>
-                `;
-                return;
-            }
-            
-            eventsData = await API.events.upcoming(stadiumId);
-            
-            if (eventsData.success && eventsData.data.events && eventsData.data.events.length > 0) {
-                const eventsHtml = eventsData.data.events.slice(0, 5).map(event => {
-                    const escapeHtml = (text) => {
-                        const div = document.createElement('div');
-                        div.textContent = text || '';
-                        return div.innerHTML;
-                    };
-                    
-                    const formatDate = (dateStr) => {
-                        if (!dateStr) return '-';
-                        const date = new Date(dateStr);
-                        const day = String(date.getDate()).padStart(2, '0');
-                        const month = String(date.getMonth() + 1).padStart(2, '0');
-                        const year = date.getFullYear();
-                        return `${day}/${month}/${year}`;
-                    };
-                    
-                    const formatTime = (timeStr) => {
-                        if (!timeStr) return '-';
-                        const parts = timeStr.split(':');
-                        return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : timeStr;
-                    };
-                    
-                    return `
-                        <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                            <div class="flex items-center space-x-4">
-                                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                                    <i data-lucide="calendar" class="w-6 h-6 text-purple-600"></i>
-                                </div>
-                                <div>
-                                    <p class="font-medium text-gray-900">${escapeHtml(event.name)}</p>
-                                    <p class="text-sm text-gray-500">
-                                        ${formatDate(event.event_date)} - ${formatTime(event.event_time)}
-                                    </p>
-                                    ${event.opponent_team ? `
-                                        <p class="text-xs text-gray-400 mt-1">vs ${escapeHtml(event.opponent_team)}</p>
-                                    ` : ''}
-                                </div>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-sm font-medium text-gray-900">${event.stats?.total_guests || 0} ospiti</p>
-                                <p class="text-xs text-gray-500">${event.stats?.total_rooms || 0} sale</p>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                
-                document.getElementById('upcomingEvents').innerHTML = eventsHtml;
-                
-                // Re-initialize Lucide icons
-                if (typeof lucide !== 'undefined') {
-                    lucide.createIcons();
-                }
-            } else {
-                document.getElementById('upcomingEvents').innerHTML = `
-                    <p class="text-sm text-gray-500 text-center py-8">Nessun evento in programma</p>
-                `;
-            }
-            
-        } catch (error) {
-            console.error('[DASHBOARD] Failed to load upcoming events:', error);
-            document.getElementById('upcomingEvents').innerHTML = `
-                <p class="text-sm text-gray-500 text-center py-8">Eventi disponibili a breve</p>
-            `;
-        }
+        document.getElementById('statPending').textContent = formatNumber(stats.rooms || 0);
+        document.getElementById('statActiveEvents').textContent = formatNumber(stats.events || 0);
+        document.getElementById('statTotalRooms').textContent = formatNumber(stats.rooms || 0);
     }
+
 };
 
 // Export for use in other modules

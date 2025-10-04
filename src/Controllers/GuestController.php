@@ -45,7 +45,6 @@ class GuestController {
      */
     public function search(): void {
         try {
-            // Require authentication
             $decoded = AuthMiddleware::handle();
             if (!$decoded) return;
 
@@ -57,7 +56,7 @@ class GuestController {
             $eventId = $_GET['event_id'] ?? null;
             $vipLevel = $_GET['vip_level'] ?? null;
             $accessStatus = $_GET['access_status'] ?? null;
-            $limit = min((int)($_GET['limit'] ?? 50), 100); // Max 100 per request
+            $limit = min((int)($_GET['limit'] ?? 50), 100);
             $offset = max((int)($_GET['offset'] ?? 0), 0);
 
             // Validate search query
@@ -68,29 +67,19 @@ class GuestController {
                 return;
             }
 
-            // Build filters based on user role
+            // Build filters
             $filters = [
                 'stadium_id' => TenantMiddleware::getStadiumIdForQuery(),
                 'limit' => $limit,
                 'offset' => $offset
             ];
 
-            if ($searchQuery) {
-                $filters['search_query'] = $searchQuery;
-            }
-
-            if ($roomId && Validator::validateId($roomId)) {
-                $filters['room_ids'] = (int)$roomId;
-            }
-
-            if ($eventId && Validator::validateId($eventId)) {
-                $filters['event_id'] = (int)$eventId;
-            }
-
+            if ($searchQuery) $filters['search_query'] = $searchQuery;
+            if ($roomId && Validator::validateId($roomId)) $filters['room_ids'] = (int)$roomId;
+            if ($eventId && Validator::validateId($eventId)) $filters['event_id'] = (int)$eventId;
             if ($vipLevel && in_array($vipLevel, ['standard', 'premium', 'vip', 'ultra_vip'])) {
                 $filters['vip_level'] = $vipLevel;
             }
-
             if ($accessStatus && in_array($accessStatus, ['checked_in', 'not_checked_in'])) {
                 $filters['access_status'] = $accessStatus;
             }
@@ -99,18 +88,19 @@ class GuestController {
             if ($decoded->role === 'hostess') {
                 $result = $this->guestRepository->getGuestsForHostess($decoded->user_id, $filters);
             } else {
-                // Stadium admin or super admin - all rooms in stadium
                 $result = $this->guestRepository->searchGuests($filters);
             }
+
+            // Calculate stats based on current filters
+            $stats = $this->calculateStats($result['results']);
 
             // Get total count for pagination (only if needed)
             $totalCount = null;
             if ($offset === 0 && count($result['results']) === $limit) {
-                // Only count if we might have more results
                 $totalCount = $this->guestRepository->countGuests($filters);
             }
 
-            // Log the search for analytics
+            // Log the search
             LogService::log(
                 'GUEST_SEARCH',
                 'Guest search performed',
@@ -128,6 +118,7 @@ class GuestController {
 
             $this->sendSuccess([
                 'guests' => $result['results'],
+                'stats' => $stats,  // AGGIUNTO
                 'pagination' => [
                     'total_found' => $result['total_found'],
                     'total_count' => $totalCount,
@@ -137,13 +128,12 @@ class GuestController {
                 ],
                 'search_info' => [
                     'query' => $searchQuery,
-                    'filters_applied' => count(array_filter($filters)) - 2, // Exclude limit/offset
+                    'filters_applied' => count(array_filter($filters)) - 2,
                     'execution_time_ms' => $result['execution_time_ms'],
                     'total_request_time_ms' => round($totalTime, 2)
                 ]
             ]);
 
-            // Performance alert
             if ($totalTime > 200) {
                 Logger::warning('Slow guest search detected', [
                     'total_time_ms' => round($totalTime, 2),
@@ -162,6 +152,38 @@ class GuestController {
 
             $this->sendError('Search failed', $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Calculate statistics from guest results
+     */
+    private function calculateStats(array $guests): array {
+        $total = count($guests);
+        $checkedIn = 0;
+        $vipCounts = [
+            'standard' => 0,
+            'premium' => 0,
+            'vip' => 0,
+            'ultra_vip' => 0
+        ];
+
+        foreach ($guests as $guest) {
+            if ($guest['access_status'] === 'checked_in') {
+                $checkedIn++;
+            }
+            
+            $vipLevel = $guest['vip_level'] ?? 'standard';
+            if (isset($vipCounts[$vipLevel])) {
+                $vipCounts[$vipLevel]++;
+            }
+        }
+
+        return [
+            'total' => $total,
+            'checked_in' => $checkedIn,
+            'pending' => $total - $checkedIn,
+            'vip_counts' => $vipCounts
+        ];
     }
 
     /**
@@ -222,13 +244,7 @@ class GuestController {
             $roomIds = null;
             if ($decoded->role === 'hostess') {
                 try {
-                    $db = \Hospitality\Config\Database::getInstance()->getConnection();
-                    $stmt = $db->prepare("
-                        SELECT room_id FROM user_room_assignments 
-                        WHERE user_id = ? AND is_active = 1
-                    ");
-                    $stmt->execute([$decoded->user_id]);
-                    $roomIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+                    $roomIds = $this->guestRepository->getHostessAssignedRooms($decoded->user_id);
                     
                     if (empty($roomIds)) {
                         $this->sendSuccess([
@@ -554,15 +570,6 @@ class GuestController {
                 return;
             }
 
-            // Per hostess, verifica accesso alla sala
-            if ($decoded->role === 'hostess') {
-                $guestAccessRepo = new GuestAccessRepository();
-                if (!$guestAccessRepo->canHostessAccessGuest($decoded->user_id, $id, $stadiumId)) {
-                    $this->sendError('Access denied to this guest', [], 403);
-                    return;
-                }
-            }
-
             // Ottieni stato attuale
             $result = $this->checkinService->getGuestCurrentStatus($id, $stadiumId);
 
@@ -712,7 +719,8 @@ class GuestController {
                 } else {
                     // For hostess, validate room is in their assigned rooms
                     if ($decoded->role === 'hostess') {
-                        $stmt = $this->guestRepository->db->prepare("
+                        $db = \Hospitality\Config\Database::getInstance()->getConnection();
+                        $stmt = $db->prepare("
                             SELECT 1 FROM user_room_assignments 
                             WHERE user_id = ? AND room_id = ? AND is_active = 1
                         ");

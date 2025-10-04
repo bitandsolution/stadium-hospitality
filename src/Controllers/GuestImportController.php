@@ -48,10 +48,16 @@ class GuestImportController {
 
             // Get POST parameters
             $eventId = $_POST['event_id'] ?? null;
+            $stadiumId = $_POST['stadium_id'] ?? null;
             $dryRun = isset($_POST['dry_run']) && $_POST['dry_run'] === 'true';
 
             if (!$eventId || !is_numeric($eventId)) {
                 $this->sendError('event_id is required', [], 422);
+                return;
+            }
+
+            if (!$stadiumId || !is_numeric($eventId)) {
+                $this->sendError('stadium_id is required', [], 400);
                 return;
             }
 
