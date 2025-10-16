@@ -365,6 +365,25 @@ const API = {
     },
 
     // ===================================
+    // API ENDPOINTS - Statistics
+    // ===================================
+
+    statistics: {
+        summary: async (params) => {
+            return await API.get('/statistics/summary', params);
+        },
+        accessByEvent: async (params) => {
+            return await API.get('/statistics/access-by-event', params);
+        },
+        accessByRoom: async (params) => {
+            return await API.get('/statistics/access-by-room', params);
+        },
+        exportExcel: async (params) => {
+            return await API.get('/statistics/export-excel', params);
+        }
+    },
+
+    // ===================================
     // API ENDPOINTS - System
     // ===================================
     

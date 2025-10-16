@@ -105,6 +105,25 @@
                         <i data-lucide="user-cog" class="w-5 h-5 mr-3"></i>
                         Utenti
                     </a>
+
+                    <!-- Statistics -->
+                    <a href="statistics.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5 mr-3"></i>
+                        Statistiche
+                    </a>
+                    
+                    <!-- Guests -->
+                    <a href="guests.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="users" class="w-5 h-5 mr-3"></i>
+                        Ospiti
+                    </a>
+                    
+                    <!-- Import -->
+                    <a href="import.html" class="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100">
+                        <i data-lucide="upload" class="w-5 h-5 mr-3"></i>
+                        Import Excel
+                    </a>
+
                 </div>
                 
                 <div class="pt-4 mt-4 border-t border-gray-200" id="superAdminMenu" style="display: none;">
@@ -243,61 +262,71 @@
                     </div>
                     
                     <!-- Quick Actions -->
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                        
-                        <!-- Quick Actions Card -->
-                        <div class="bg-white rounded-lg shadow p-6">
-                            <h2 class="text-lg font-semibold text-gray-900 mb-4">Azioni Rapide</h2>
-                            <div class="space-y-3">
-                                <a href="import.html" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                                    <div class="flex items-center">
-                                        <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
-                                            <i data-lucide="upload" class="w-5 h-5 text-purple-600"></i>
-                                        </div>
-                                        <div>
-                                            <p class="font-medium text-gray-900">Import Ospiti</p>
-                                            <p class="text-sm text-gray-500">Carica file Excel</p>
-                                        </div>
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-4">Azioni Rapide</h2>
+                        <div class="space-y-3">
+                            
+                            <!-- Statistics Action -->
+                            <a href="statistics.html" 
+                            class="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg hover:from-purple-100 hover:to-indigo-100 transition group">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+                                        <i data-lucide="bar-chart-3" class="w-5 h-5 text-white"></i>
                                     </div>
-                                    <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
-                                </a>
-                                
-                                <a href="guests.html?action=create" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                                    <div class="flex items-center">
-                                        <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                                            <i data-lucide="user-plus" class="w-5 h-5 text-blue-600"></i>
-                                        </div>
-                                        <div>
-                                            <p class="font-medium text-gray-900">Nuovo Ospite</p>
-                                            <p class="text-sm text-gray-500">Creazione manuale</p>
-                                        </div>
+                                    <div>
+                                        <p class="font-medium text-gray-900">Statistiche</p>
+                                        <p class="text-sm text-gray-500">Report e grafici accessi</p>
                                     </div>
-                                    <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
-                                </a>
-                                
-                                <a href="events.html?action=create" class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                                    <div class="flex items-center">
-                                        <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center mr-3">
-                                            <i data-lucide="calendar-plus" class="w-5 h-5 text-green-600"></i>
-                                        </div>
-                                        <div>
-                                            <p class="font-medium text-gray-900">Nuovo Evento</p>
-                                            <p class="text-sm text-gray-500">Crea partita/evento</p>
-                                        </div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400 group-hover:text-purple-600 group-hover:translate-x-1 transition-all"></i>
+                            </a>
+                            
+                            <!-- Import Action -->
+                            <a href="import.html" 
+                            class="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg hover:from-green-100 hover:to-emerald-100 transition group">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+                                        <i data-lucide="upload" class="w-5 h-5 text-white"></i>
                                     </div>
-                                    <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400"></i>
-                                </a>
-                            </div>
+                                    <div>
+                                        <p class="font-medium text-gray-900">Import Ospiti</p>
+                                        <p class="text-sm text-gray-500">Carica file Excel</p>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400 group-hover:text-green-600 group-hover:translate-x-1 transition-all"></i>
+                            </a>
+                            
+                            <!-- New Guest Action -->
+                            <a href="guests.html?action=create" 
+                            class="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg hover:from-blue-100 hover:to-cyan-100 transition group">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-600 rounded-lg flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+                                        <i data-lucide="user-plus" class="w-5 h-5 text-white"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-gray-900">Nuovo Ospite</p>
+                                        <p class="text-sm text-gray-500">Creazione manuale</p>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all"></i>
+                            </a>
+                            
+                            <!-- New Event Action -->
+                            <a href="events.html?action=create" 
+                            class="flex items-center justify-between p-4 bg-gradient-to-r from-orange-50 to-amber-50 rounded-lg hover:from-orange-100 hover:to-amber-100 transition group">
+                                <div class="flex items-center">
+                                    <div class="w-10 h-10 bg-gradient-to-r from-orange-500 to-amber-600 rounded-lg flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+                                        <i data-lucide="calendar-plus" class="w-5 h-5 text-white"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-gray-900">Nuovo Evento</p>
+                                        <p class="text-sm text-gray-500">Crea partita/evento</p>
+                                    </div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-5 h-5 text-gray-400 group-hover:text-orange-600 group-hover:translate-x-1 transition-all"></i>
+                            </a>
+                            
                         </div>
-                        
-                        <!-- Recent Activity -->
-                        <div class="bg-white rounded-lg shadow p-6">
-                            <h2 class="text-lg font-semibold text-gray-900 mb-4">Attività Recente</h2>
-                            <div class="space-y-4" id="recentActivity">
-                                <p class="text-sm text-gray-500 text-center py-8">Nessuna attività recente</p>
-                            </div>
-                        </div>
-                        
                     </div>
                     
                     <!-- Upcoming Events -->

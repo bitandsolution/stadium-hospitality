@@ -117,7 +117,11 @@ const Auth = {
      */
     async getCurrentUser() {
         try {
-            const response = await fetch(`${CONFIG.API_BASE_URL}/auth/me`, {
+            console.log('[AUTH] Fetching current user...');
+            
+            const API_BASE_URL = typeof CONFIG !== 'undefined' ? CONFIG.API_BASE_URL : 'https://checkindigitale.cloud/api';
+            
+            const response = await fetch(`${API_BASE_URL}/auth/me`, {
                 method: 'GET',
                 headers: {
                     'Authorization': this.getAuthHeader(),
@@ -125,15 +129,73 @@ const Auth = {
                 }
             });
             
-            const data = await response.json();
+            console.log('[AUTH] Response status:', response.status);
             
-            if (data.success) {
-                return data.data.user;
-            } else {
-                throw new Error(data.message || 'Failed to get user info');
+            if (!response.ok) {
+                console.error('[AUTH] Failed to get current user:', response.status);
+                
+                if (response.status === 401) {
+                    console.log('[AUTH] Token invalid/expired, logging out...');
+                    this.logout();
+                }
+                
+                throw new Error(`HTTP ${response.status}`);
             }
+            
+            const data = await response.json();
+            console.log('[AUTH] Raw API response:', data);
+            
+            // Intelligent format detection
+            let normalizedData = null;
+            
+            if (data.success === true && data.data) {
+                console.log('[AUTH] Detected nested format with success flag');
+                
+                if (data.data.user) {
+                    normalizedData = {
+                        user: data.data.user,
+                        permissions: data.data.permissions || [],
+                        session_info: data.data.session_info || null
+                    };
+                } else {
+                    normalizedData = {
+                        user: data.data,
+                        permissions: [],
+                        session_info: null
+                    };
+                }
+            } else if (data.user) {
+                console.log('[AUTH] Detected flat format');
+                normalizedData = {
+                    user: data.user,
+                    permissions: data.permissions || [],
+                    session_info: data.session_info || null
+                };
+            } else {
+                console.warn('[AUTH] Using fallback format detection');
+                normalizedData = {
+                    user: data,
+                    permissions: [],
+                    session_info: null
+                };
+            }
+            
+            if (!normalizedData || !normalizedData.user || !normalizedData.user.id) {
+                console.error('[AUTH] Invalid user data');
+                throw new Error('Invalid response format');
+            }
+            
+            console.log('[AUTH] User loaded successfully:', {
+                id: normalizedData.user.id,
+                username: normalizedData.user.username,
+                role: normalizedData.user.role,
+                stadium_id: normalizedData.user.stadium_id
+            });
+            
+            return normalizedData;
+            
         } catch (error) {
-            console.error('Get current user error:', error);
+            console.error('[AUTH] Get current user error:', error);
             throw error;
         }
     },

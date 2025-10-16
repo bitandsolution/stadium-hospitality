@@ -736,6 +736,18 @@ try {
         $routed = true;
     }
 
+    elseif (str_starts_with($path, '/api/dashboard')) {
+        // Dashboard and analytics
+        handleDashboardRoutes($path, $method);
+        $routed = true;
+    }
+    
+    elseif (str_starts_with($path, '/api/statistics')) {
+        // Statistics routes
+        handleStatisticsRoutes($path, $method);
+        $routed = true;
+    }
+
     // =====================================================
     // UPCOMING EVENTS
     // =====================================================
@@ -952,4 +964,109 @@ function servePWAHomepage(): void {
     </html>
     <?php
 }
+function handleStatisticsRoutes(string $path, string $method): void {
+    // All statistics routes require authentication
+    if (!Hospitality\Middleware\AuthMiddleware::handle()) return;
+
+    $controller = new Hospitality\Controllers\StatisticsController();
+    
+    if ($path === '/api/statistics/summary' && $method === 'GET') {
+        $controller->summary();
+        
+    } elseif ($path === '/api/statistics/access-by-event' && $method === 'GET') {
+        $controller->accessByEvent();
+        
+    } elseif ($path === '/api/statistics/access-by-room' && $method === 'GET') {
+        $controller->accessByRoom();
+        
+    } elseif ($path === '/api/statistics/export-excel' && $method === 'GET') {
+        $controller->exportExcel();
+        
+    } elseif (preg_match('/^\/api\/statistics\/download\/(.+)$/', $path, $matches) && $method === 'GET') {
+        $filename = $matches[1];
+        $controller->downloadExcel($filename);
+        
+    } else {
+        http_response_code(404);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Statistics endpoint not found',
+            'available_endpoints' => [
+                'GET /api/statistics/summary' => 'Get statistics summary',
+                'GET /api/statistics/access-by-event' => 'Access statistics by event',
+                'GET /api/statistics/access-by-room' => 'Access statistics by room',
+                'GET /api/statistics/export-excel' => 'Export detailed Excel report',
+                'GET /api/statistics/download/{filename}' => 'Download generated Excel file'
+            ],
+            'timestamp' => date('c')
+        ], JSON_PRETTY_PRINT);
+    }
+}
+
+function handleDashboardRoutes(string $path, string $method): void {
+    // All dashboard routes require authentication
+    if (!Hospitality\Middleware\AuthMiddleware::handle()) return;
+
+    $controller = new Hospitality\Controllers\DashboardController();
+    
+    if ($path === '/api/dashboard/stats' && $method === 'GET') {
+        // Get dashboard statistics
+        try {
+            $controller->stats();
+        } catch (Exception $e) {
+            error_log("Dashboard stats error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Failed to load statistics',
+                'error' => $_ENV['APP_DEBUG'] === 'true' ? $e->getMessage() : null,
+                'timestamp' => date('c')
+            ], JSON_PRETTY_PRINT);
+        }
+        
+    } elseif ($path === '/api/dashboard/upcoming-events' && $method === 'GET') {
+        // Get upcoming events for dashboard
+        try {
+            $controller->upcomingEvents();
+        } catch (Exception $e) {
+            error_log("Dashboard upcoming events error: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Failed to load upcoming events',
+                'error' => $_ENV['APP_DEBUG'] === 'true' ? $e->getMessage() : null,
+                'timestamp' => date('c')
+            ], JSON_PRETTY_PRINT);
+        }
+        
+    } elseif ($path === '/api/dashboard/recent-activity' && $method === 'GET') {
+        // Get recent activity (placeholder for future implementation)
+        if (!Hospitality\Middleware\AuthMiddleware::handle()) return;
+        
+        http_response_code(501);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Recent activity endpoint coming soon',
+            'status' => 'not_implemented',
+            'timestamp' => date('c')
+        ], JSON_PRETTY_PRINT);
+        
+    } else {
+        // Dashboard endpoint not found
+        http_response_code(404);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Dashboard endpoint not found',
+            'available_endpoints' => [
+                'GET /api/dashboard/stats?stadium_id=X' => 'Get dashboard statistics',
+                'GET /api/dashboard/upcoming-events?stadium_id=X' => 'Get upcoming events',
+                'GET /api/dashboard/recent-activity?stadium_id=X' => 'Get recent activity (coming soon)'
+            ],
+            'requested' => "$method $path",
+            'timestamp' => date('c')
+        ], JSON_PRETTY_PRINT);
+    }
+}
+
+
 ?>

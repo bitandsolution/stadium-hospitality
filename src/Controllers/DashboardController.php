@@ -73,18 +73,17 @@ class DashboardController {
             
             // 3. Pending Guests (not checked in today)
             $stmt = $db->prepare("
-                SELECT COUNT(*) as pending
+                SELECT COUNT(DISTINCT g.id) as pending
                 FROM guests g
                 JOIN events e ON g.event_id = e.id
+                LEFT JOIN guest_accesses ga ON g.id = ga.guest_id 
+                    AND ga.access_type = 'entry'
+                    AND DATE(ga.access_time) = CURDATE()
                 WHERE g.stadium_id = ? 
                     AND g.is_active = 1
                     AND e.event_date = CURDATE()
-                    AND g.id NOT IN (
-                        SELECT guest_id 
-                        FROM guest_accesses 
-                        WHERE access_type = 'entry' 
-                            AND DATE(access_time) = CURDATE()
-                    )
+                    AND e.is_active = 1
+                    AND ga.id IS NULL
             ");
             $stmt->execute([$stadiumId]);
             $pending = (int)$stmt->fetchColumn();

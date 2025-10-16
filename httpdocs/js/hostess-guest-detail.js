@@ -173,7 +173,7 @@ class HostessGuestDetail {
             this.showLoading();
 
             // Call API to get FRESH guest details
-            const response = await API.guests.getById(this.guestId);
+            const response = await API.guests.get(this.guestId);
 
             if (response.success) {
                 this.guest = response.data.guest;
