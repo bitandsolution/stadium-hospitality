@@ -27,6 +27,11 @@ const CONFIG = {
     // File Upload
     MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
     ALLOWED_FILE_TYPES: ['.xlsx', '.xls'],
+
+    // Logo Upload
+    MAX_LOGO_SIZE: 2 * 1024 * 1024, // 2MB
+    ALLOWED_LOGO_TYPES: ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'],
+    ALLOWED_LOGO_EXTENSIONS: ['.png', '.jpg', '.jpeg', '.svg'],
     
     // Roles
     ROLES: {
@@ -79,7 +84,7 @@ const CONFIG = {
     
     // Application Info
     APP_NAME: 'Hospitality Manager',
-    APP_VERSION: '1.3.0'
+    APP_VERSION: '1.5.0'
 };
 
 // Freeze configuration to prevent modifications

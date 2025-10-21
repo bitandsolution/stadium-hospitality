@@ -665,14 +665,12 @@ class GuestController {
      */
     public function update(int $id): void {
         try {
-            // Require authentication
             $decoded = AuthMiddleware::handle();
             if (!$decoded) return;
 
             $input = $this->getJsonInput();
             $stadiumId = TenantMiddleware::getStadiumIdForQuery();
 
-            // Check if guest exists
             $guestBefore = $this->guestRepository->getGuestDataForDiff($id, $stadiumId);
             
             if (!$guestBefore) {
@@ -680,7 +678,7 @@ class GuestController {
                 return;
             }
 
-            // For hostess, verify they can edit this guest (room assignment check)
+            // For hostess, verify they can edit this guest
             if ($decoded->role === 'hostess') {
                 if (!$this->guestRepository->canHostessEditGuest($id, $decoded->user_id, $stadiumId)) {
                     $this->sendError('You do not have permission to edit this guest', [
@@ -713,11 +711,17 @@ class GuestController {
                 $errors[] = 'Invalid VIP level';
             }
 
+            if (isset($input['notes'])) {
+                $notes = trim($input['notes']);
+                if (mb_strlen($notes) > 2000) {
+                    $errors[] = 'Notes must be maximum 2000 characters (current: ' . mb_strlen($notes) . ')';
+                }
+            }
+
             if (isset($input['room_id'])) {
                 if (!Validator::validateId($input['room_id'])) {
                     $errors[] = 'Invalid room ID';
                 } else {
-                    // For hostess, validate room is in their assigned rooms
                     if ($decoded->role === 'hostess') {
                         $db = \Hospitality\Config\Database::getInstance()->getConnection();
                         $stmt = $db->prepare("
@@ -773,7 +777,6 @@ class GuestController {
             foreach ($updateData as $field => $newValue) {
                 $oldValue = $guestBefore[$field] ?? null;
                 
-                // Special handling for room_id - show room name
                 if ($field === 'room_id' && $oldValue != $newValue) {
                     $changes['room_id'] = [
                         'old' => $guestBefore['room_name'] ?? "ID: {$oldValue}",
@@ -802,30 +805,51 @@ class GuestController {
                 $id
             );
 
-            // Send email notification to stadium admin (only if hostess made changes)
-            if ($decoded->role === 'hostess' && !empty($changes)) {
-                // Get hostess full name
-                $hostessUser = $this->userRepository->findById($decoded->user_id);
-                $hostessName = $hostessUser['full_name'] ?? $hostessUser['username'] ?? 'Unknown';
-
-                // Send notification
-                NotificationService::notifyGuestEdit(
-                    $id,
-                    "{$guestAfter['first_name']} {$guestAfter['last_name']}",
-                    $changes,
-                    $decoded->user_id,
-                    $hostessName,
-                    $stadiumId
-                );
-            }
-
-            // Return success with updated data
             $this->sendSuccess([
                 'message' => 'Guest updated successfully',
                 'guest' => $guestAfter,
                 'changes_made' => count($changes),
-                'notification_sent' => $decoded->role === 'hostess' && !empty($changes)
+                'notification_queued' => $decoded->role === 'hostess' && !empty($changes)
             ]);
+
+            // ✅ Chiudi la connessione HTTP (il client non aspetta più)
+            if (function_exists('fastcgi_finish_request')) {
+                fastcgi_finish_request();
+            } else {
+                // Fallback per altri SAPI
+                if (ob_get_level() > 0) {
+                    ob_end_flush();
+                }
+                flush();
+            }
+
+            if ($decoded->role === 'hostess' && !empty($changes)) {
+                try {
+                    $hostessUser = $this->userRepository->findById($decoded->user_id);
+                    $hostessName = $hostessUser['full_name'] ?? $hostessUser['username'] ?? 'Unknown';
+
+                    NotificationService::notifyGuestEdit(
+                        $id,
+                        "{$guestAfter['first_name']} {$guestAfter['last_name']}",
+                        $changes,
+                        $decoded->user_id,
+                        $hostessName,
+                        $stadiumId
+                    );
+                    
+                    Logger::info('Guest edit notification sent', [
+                        'guest_id' => $id,
+                        'hostess_id' => $decoded->user_id,
+                        'changes_count' => count($changes)
+                    ]);
+                    
+                } catch (\Exception $e) {
+                    Logger::error('Failed to send guest edit notification (non-blocking)', [
+                        'guest_id' => $id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
 
         } catch (Exception $e) {
             Logger::error('Failed to update guest', [

@@ -312,6 +312,25 @@ class UserRepository {
     }
 
     /**
+     * Find user by email
+     * 
+     * @param string $email
+     * @return array|null
+     */
+    public function findByEmail(string $email): ?array {
+        $stmt = $this->db->prepare("
+            SELECT * FROM users 
+            WHERE email = ? 
+            LIMIT 1
+        ");
+        
+        $stmt->execute([$email]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        return $result ?: null;
+    }
+
+    /**
      * Get assigned rooms for user
      */
     public function getAssignedRooms(int $userId): array {

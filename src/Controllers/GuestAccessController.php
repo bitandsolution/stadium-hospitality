@@ -36,50 +36,75 @@ class GuestAccessController {
      * Effettua check-in ospite
      */
     public function checkin(int $guestId): void {
+        $db = \Hospitality\Config\Database::getInstance()->getConnection();
+        
         try {
             $decoded = AuthMiddleware::handle();
             if (!$decoded) return;
 
             $stadiumId = TenantMiddleware::getStadiumIdForQuery();
-            $guest = $this->guestRepository->findById($guestId, $stadiumId);
+            
+            // 🔒 START TRANSACTION WITH LOCK
+            $db->beginTransaction();
+            
+            try {
+                // LOCK the guest row to prevent concurrent check-ins
+                $stmt = $db->prepare("
+                    SELECT g.*, hr.name as room_name, e.event_date
+                    FROM guests g
+                    LEFT JOIN hospitality_rooms hr ON g.room_id = hr.id
+                    LEFT JOIN events e ON g.event_id = e.id
+                    WHERE g.id = ? AND g.stadium_id = ?
+                    FOR UPDATE
+                ");
+                $stmt->execute([$guestId, $stadiumId]);
+                $guest = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-            if (!$guest) {
-                $this->sendError('Guest not found', [], 404);
-                return;
-            }
-
-            // For hostess, verify access to room
-            if ($decoded->role === 'hostess') {
-                if (!$this->accessRepository->hostessCanAccessRoom($decoded->user_id, $guest['room_id'])) {
-                    $this->sendError('Access denied to this guest room', [], 403);
+                if (!$guest) {
+                    $db->rollBack();
+                    $this->sendError('Guest not found', [], 404);
                     return;
                 }
-            }
 
-            // FIX: Check ULTIMO accesso (entry o exit)
-            $lastAccess = $this->accessRepository->getLastAccess($guestId);
-            
-            if ($lastAccess && $lastAccess['access_type'] === 'entry') {
-                // Già checked in - permettilo comunque o restituisci errore
-                $this->sendError('Guest already checked in', [
-                    'last_checkin' => $lastAccess['access_time'],
-                    'checked_in_by' => $lastAccess['hostess_name'] ?? 'Unknown'
-                ], 400);
-                return;
-            }
+                // For hostess, verify access to room
+                if ($decoded->role === 'hostess') {
+                    if (!$this->accessRepository->hostessCanAccessRoom($decoded->user_id, $guest['room_id'])) {
+                        $db->rollBack();
+                        $this->sendError('Access denied to this guest room', [], 403);
+                        return;
+                    }
+                }
 
-            // Perform check-in
-            $accessId = $this->accessRepository->createAccess([
-                'guest_id' => $guestId,
-                'hostess_id' => $decoded->user_id,
-                'stadium_id' => $guest['stadium_id'],
-                'room_id' => $guest['room_id'],
-                'event_id' => $guest['event_id'],
-                'access_type' => 'entry',
-                'device_type' => $this->detectDeviceType()
-            ]);
+                // Check LAST access (now protected by lock)
+                $lastAccess = $this->accessRepository->getLastAccess($guestId);
+                
+                if ($lastAccess && $lastAccess['access_type'] === 'entry') {
+                    $db->rollBack();
+                    $this->sendError('Guest already checked in', [
+                        'last_checkin' => $lastAccess['access_time'],
+                        'checked_in_by' => $lastAccess['hostess_name'] ?? 'Unknown'
+                    ], 409); // 409 Conflict
+                    return;
+                }
 
-            if ($accessId) {
+                // Perform check-in
+                $accessId = $this->accessRepository->createAccess([
+                    'guest_id' => $guestId,
+                    'hostess_id' => $decoded->user_id,
+                    'stadium_id' => $guest['stadium_id'],
+                    'room_id' => $guest['room_id'],
+                    'event_id' => $guest['event_id'],
+                    'access_type' => 'entry',
+                    'device_type' => $this->detectDeviceType()
+                ]);
+
+                if (!$accessId) {
+                    throw new Exception('Failed to create access record');
+                }
+                
+                // 🔓 COMMIT - Everything OK
+                $db->commit();
+
                 LogService::log(
                     'GUEST_CHECKIN',
                     'Guest checked in successfully',
@@ -103,8 +128,10 @@ class GuestAccessController {
                         'name' => $guest['first_name'] . ' ' . $guest['last_name']
                     ]
                 ]);
-            } else {
-                throw new Exception('Failed to create access record');
+
+            } catch (Exception $e) {
+                $db->rollBack();
+                throw $e;
             }
 
         } catch (Exception $e) {
@@ -123,47 +150,73 @@ class GuestAccessController {
      * Effettua check-out ospite
      */
     public function checkout(int $guestId): void {
+        $db = \Hospitality\Config\Database::getInstance()->getConnection();
+        
         try {
             $decoded = AuthMiddleware::handle();
             if (!$decoded) return;
 
-            // Get guest details
             $stadiumId = TenantMiddleware::getStadiumIdForQuery();
-            $guest = $this->guestRepository->findById($guestId, $stadiumId);
+            
+            // 🔒 START TRANSACTION WITH LOCK
+            $db->beginTransaction();
+            
+            try {
+                // LOCK the guest row to prevent concurrent check-outs
+                $stmt = $db->prepare("
+                    SELECT g.*, hr.name as room_name
+                    FROM guests g
+                    LEFT JOIN hospitality_rooms hr ON g.room_id = hr.id
+                    WHERE g.id = ? AND g.stadium_id = ?
+                    FOR UPDATE
+                ");
+                $stmt->execute([$guestId, $stadiumId]);
+                $guest = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-            if (!$guest) {
-                $this->sendError('Guest not found', [], 404);
-                return;
-            }
-
-            // For hostess, verify access to room
-            if ($decoded->role === 'hostess') {
-                if (!$this->accessRepository->hostessCanAccessRoom($decoded->user_id, $guest['room_id'])) {
-                    $this->sendError('Access denied to this guest room', [], 403);
+                if (!$guest) {
+                    $db->rollBack();
+                    $this->sendError('Guest not found', [], 404);
                     return;
                 }
-            }
 
-            // Check if checked in
-            $lastAccess = $this->accessRepository->getLastAccess($guestId);
-            if (!$lastAccess || $lastAccess['access_type'] !== 'entry') {
-                $this->sendError('Guest is not checked in', [], 400);
-                return;
-            }
+                // For hostess, verify access to room
+                if ($decoded->role === 'hostess') {
+                    if (!$this->accessRepository->hostessCanAccessRoom($decoded->user_id, $guest['room_id'])) {
+                        $db->rollBack();
+                        $this->sendError('Access denied to this guest room', [], 403);
+                        return;
+                    }
+                }
 
-            // Perform check-out
-            $accessId = $this->accessRepository->createAccess([
-                'guest_id' => $guestId,
-                'hostess_id' => $decoded->user_id,
-                'stadium_id' => $guest['stadium_id'],
-                'room_id' => $guest['room_id'],
-                'event_id' => $guest['event_id'],
-                'access_type' => 'exit',
-                'device_type' => $this->detectDeviceType()
-            ]);
+                // Check if checked in (now protected by lock)
+                $lastAccess = $this->accessRepository->getLastAccess($guestId);
+                
+                if (!$lastAccess || $lastAccess['access_type'] !== 'entry') {
+                    $db->rollBack();
+                    $this->sendError('Guest is not checked in', [], 409); // 409 Conflict
+                    return;
+                }
 
-            if ($accessId) {
-                // Log the operation
+                // Perform check-out
+                $accessId = $this->accessRepository->createAccess([
+                    'guest_id' => $guestId,
+                    'hostess_id' => $decoded->user_id,
+                    'stadium_id' => $guest['stadium_id'],
+                    'room_id' => $guest['room_id'],
+                    'event_id' => $guest['event_id'],
+                    'access_type' => 'exit',
+                    'device_type' => $this->detectDeviceType()
+                ]);
+
+                if (!$accessId) {
+                    throw new Exception('Failed to create access record');
+                }
+                
+                // 🔓 COMMIT - Everything OK
+                $db->commit();
+
+                $duration = $this->calculateDuration($lastAccess['access_time']);
+
                 LogService::log(
                     'GUEST_CHECKOUT',
                     'Guest checked out successfully',
@@ -173,7 +226,7 @@ class GuestAccessController {
                         'room_id' => $guest['room_id'],
                         'room_name' => $guest['room_name'],
                         'access_id' => $accessId,
-                        'duration_minutes' => $this->calculateDuration($lastAccess['access_time'])
+                        'duration_minutes' => $duration
                     ],
                     $decoded->user_id,
                     $decoded->stadium_id,
@@ -185,15 +238,17 @@ class GuestAccessController {
                     'message' => 'Check-out completed successfully',
                     'access_id' => $accessId,
                     'access_time' => date('c'),
-                    'duration_minutes' => $this->calculateDuration($lastAccess['access_time']),
+                    'duration_minutes' => $duration,
                     'guest' => [
                         'id' => $guest['id'],
                         'name' => $guest['first_name'] . ' ' . $guest['last_name'],
                         'room' => $guest['room_name']
                     ]
                 ]);
-            } else {
-                throw new Exception('Failed to create access record');
+
+            } catch (Exception $e) {
+                $db->rollBack();
+                throw $e;
             }
 
         } catch (Exception $e) {

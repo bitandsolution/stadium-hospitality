@@ -109,18 +109,104 @@ try {
     elseif (str_starts_with($path, '/api/auth/')) {
         $controller = new Hospitality\Controllers\AuthController();
         
-        if ($path === '/api/auth/logout' && $method === 'POST') {
-            $controller->logout();
-            $routed = true;
+        switch ($path) {
+            case '/api/auth/logout':
+                if ($method === 'POST') {
+                    $controller->logout();
+                    $routed = true;
+                }
+                break;
+                
+            case '/api/auth/me':
+                if ($method === 'GET') {
+                    $controller->me();
+                    $routed = true;
+                }
+                break;
+                
+            case '/api/auth/change-password':
+                if ($method === 'POST') {
+                    $controller->changePassword();
+                    $routed = true;
+                }
+                break;
         }
-        elseif ($path === '/api/auth/me' && $method === 'GET') {
-            $controller->me();
-            $routed = true;
+    }
+
+
+    elseif ($path === '/api/debug/user-context' && $method === 'GET') {
+        // 🔍 DEBUG ENDPOINT - Rimuovere in produzione
+        if (($_ENV['APP_DEBUG'] ?? 'false') !== 'true') {
+            http_response_code(404);
+            echo json_encode(['error' => 'Not found']);
+            exit;
         }
-        elseif ($path === '/api/auth/change-password' && $method === 'POST') {
-            $controller->changePassword();
-            $routed = true;
+        
+        try {
+            $decoded = Hospitality\Middleware\AuthMiddleware::handle();
+            if (!$decoded) exit;
+            
+            $db = Hospitality\Config\Database::getInstance()->getConnection();
+            
+            // Get user full data
+            $stmt = $db->prepare("
+                SELECT u.*, s.name as stadium_name
+                FROM users u
+                LEFT JOIN stadiums s ON u.stadium_id = s.id
+                WHERE u.id = ?
+            ");
+            $stmt->execute([$decoded->user_id]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            unset($user['password_hash']);
+            
+            // Get room assignments if hostess
+            $roomAssignments = [];
+            if ($user['role'] === 'hostess') {
+                $stmt = $db->prepare("
+                    SELECT 
+                        hr.id, hr.name, hr.capacity, hr.vip_level,
+                        COUNT(DISTINCT g.id) as guest_count
+                    FROM user_room_assignments ura
+                    JOIN hospitality_rooms hr ON ura.room_id = hr.id
+                    LEFT JOIN guests g ON g.room_id = hr.id AND g.is_active = 1
+                    WHERE ura.user_id = ? AND ura.is_active = 1
+                    GROUP BY hr.id, hr.name, hr.capacity, hr.vip_level
+                ");
+                $stmt->execute([$decoded->user_id]);
+                $roomAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+            
+            http_response_code(200);
+            echo json_encode([
+                'success' => true,
+                'debug_data' => [
+                    'user' => $user,
+                    'jwt_decoded' => [
+                        'user_id' => $decoded->user_id,
+                        'stadium_id' => $decoded->stadium_id,
+                        'role' => $decoded->role,
+                        'permissions' => $decoded->permissions ?? []
+                    ],
+                    'room_assignments' => $roomAssignments,
+                    'globals_user' => $GLOBALS['current_user'] ?? null
+                ],
+                'recommendations' => [
+                    'expected_view' => $user['role'] === 'hostess' ? 'Check-in/Check-out Interface' : 'Admin Dashboard',
+                    'has_room_access' => count($roomAssignments) > 0,
+                    'should_see_guests' => $user['role'] === 'hostess' && count($roomAssignments) > 0
+                ],
+                'timestamp' => date('c')
+            ], JSON_PRETTY_PRINT);
+            
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ], JSON_PRETTY_PRINT);
         }
+        $routed = true;
     }
 
     // =====================================================
@@ -322,6 +408,71 @@ try {
             }
             elseif ($method === 'DELETE') {
                 $controller->delete($guestId);
+                $routed = true;
+            }
+        }
+    }
+
+    // =====================================================
+    // ADMIN UTILITY ROUTES (Solo Super Admin)
+    // =====================================================
+
+    elseif (str_starts_with($path, '/api/admin/utilities')) {
+        $controller = new Hospitality\Controllers\UtilityController();
+        
+        if ($path === '/api/admin/utilities/generate-password-hash' && $method === 'POST') {
+            $controller->generatePasswordHash();
+            $routed = true;
+        }
+    }
+
+    // =====================================================
+    // ADMIN STADIUM ROUTES
+    // =====================================================
+
+    elseif (str_starts_with($path, '/api/admin/stadiums')) {
+        $controller = new Hospitality\Controllers\StadiumController();
+        
+        // POST /api/admin/stadiums - Create new stadium
+        if ($path === '/api/admin/stadiums' && $method === 'POST') {
+            $controller->create();
+            $routed = true;
+        }
+        // GET /api/admin/stadiums - List all stadiums
+        elseif ($path === '/api/admin/stadiums' && $method === 'GET') {
+            $controller->index();
+            $routed = true;
+        }
+        // GET /api/admin/stadiums/{id} - Get stadium details
+        elseif (preg_match('/^\/api\/admin\/stadiums\/(\d+)$/', $path, $matches)) {
+            $stadiumId = (int)$matches[1];
+            
+            if ($method === 'GET') {
+                $controller->show($stadiumId);
+                $routed = true;
+            }
+            // PUT /api/admin/stadiums/{id} - Update stadium
+            elseif ($method === 'PUT') {
+                $controller->update($stadiumId);
+                $routed = true;
+            }
+            // DELETE /api/admin/stadiums/{id} - Delete stadium
+            elseif ($method === 'DELETE') {
+                $controller->delete($stadiumId);
+                $routed = true;
+            }
+        }
+        // POST /api/admin/stadiums/{id}/logo - Upload logo
+        elseif (preg_match('/^\/api\/admin\/stadiums\/(\d+)\/logo$/', $path, $matches)) {
+            $stadiumId = (int)$matches[1];
+            
+            if ($method === 'POST') {
+                $controller->uploadLogo($stadiumId);
+                $routed = true;
+            }
+            // DELETE /api/admin/stadiums/{id}/logo - Delete logo
+            elseif ($method === 'DELETE') {
+                $controller->deleteLogo($stadiumId);
                 $routed = true;
             }
         }

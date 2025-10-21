@@ -47,19 +47,30 @@ const Auth = {
             console.log('[AUTH] Response data:', data);
             
             if (data.success) {
-                // Store tokens
-                sessionStorage.setItem('hm_access_token', data.data.tokens.access_token);
-                sessionStorage.setItem('hm_refresh_token', data.data.tokens.refresh_token);
+                localStorage.setItem('access_token', data.data.tokens.access_token);
+                localStorage.setItem('refresh_token', data.data.tokens.refresh_token);
                 
-                // Store user info
-                sessionStorage.setItem('hm_user', JSON.stringify(data.data.user));
+                // Store user info con i dati completi dall'API
+                const userData = {
+                    user: data.data.user,
+                    permissions: data.data.permissions || [],
+                    role_specific_data: data.data.role_specific_data || {
+                        view_type: data.data.user.role === 'hostess' ? 'hostess_checkin' : 
+                                  data.data.user.role === 'stadium_admin' ? 'admin_dashboard' : 
+                                  'super_admin_dashboard'
+                    },
+                    assigned_rooms: data.data.assigned_rooms || []
+                };
                 
-                // Store permissions
-                if (data.data.permissions) {
-                    sessionStorage.setItem('hm_permissions', JSON.stringify(data.data.permissions));
-                }
+                localStorage.setItem('user_data', JSON.stringify(userData));
                 
-                console.log('[AUTH] Login successful');
+                // Mantieni anche i vecchi nomi per retrocompatibilità
+                localStorage.setItem('hm_access_token', data.data.tokens.access_token);
+                localStorage.setItem('hm_refresh_token', data.data.tokens.refresh_token);
+                localStorage.setItem('hm_user', JSON.stringify(data.data.user));
+                localStorage.setItem('hm_permissions', JSON.stringify(data.data.permissions || []));
+                
+                console.log('[AUTH] Login successful, data saved to localStorage');
                 
                 return { success: true, user: data.data.user };
             } else {
@@ -82,7 +93,7 @@ const Auth = {
     async logout() {
         try {
             const token = this.getToken();
-            const refreshToken = sessionStorage.getItem('hm_refresh_token');
+            const refreshToken = this.getRefreshToken();
             
             const API_BASE_URL = typeof CONFIG !== 'undefined' ? CONFIG.API_BASE_URL : 'https://checkindigitale.cloud/api';
             
@@ -103,8 +114,15 @@ const Auth = {
         } catch (error) {
             console.error('[AUTH] Logout API error:', error);
         } finally {
-            // Clear all session data
-            sessionStorage.clear();
+            // ✅ FIXED: Clear localStorage invece di sessionStorage
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('user_data');
+            localStorage.removeItem('hm_access_token');
+            localStorage.removeItem('hm_refresh_token');
+            localStorage.removeItem('hm_user');
+            localStorage.removeItem('hm_permissions');
+            
             console.log('[AUTH] Logged out successfully');
             
             // Redirect to login
@@ -151,32 +169,30 @@ const Auth = {
             if (data.success === true && data.data) {
                 console.log('[AUTH] Detected nested format with success flag');
                 
-                if (data.data.user) {
-                    normalizedData = {
-                        user: data.data.user,
-                        permissions: data.data.permissions || [],
-                        session_info: data.data.session_info || null
-                    };
-                } else {
-                    normalizedData = {
-                        user: data.data,
-                        permissions: [],
-                        session_info: null
-                    };
-                }
+                normalizedData = {
+                    user: data.data.user,
+                    permissions: data.data.permissions || [],
+                    session_info: data.data.session_info || null,
+                    role_specific_data: data.data.role_specific_data || null,
+                    assigned_rooms: data.data.assigned_rooms || []
+                };
             } else if (data.user) {
                 console.log('[AUTH] Detected flat format');
                 normalizedData = {
                     user: data.user,
                     permissions: data.permissions || [],
-                    session_info: data.session_info || null
+                    session_info: data.session_info || null,
+                    role_specific_data: data.role_specific_data || null,
+                    assigned_rooms: data.assigned_rooms || []
                 };
             } else {
                 console.warn('[AUTH] Using fallback format detection');
                 normalizedData = {
                     user: data,
                     permissions: [],
-                    session_info: null
+                    session_info: null,
+                    role_specific_data: null,
+                    assigned_rooms: []
                 };
             }
             
@@ -185,11 +201,15 @@ const Auth = {
                 throw new Error('Invalid response format');
             }
             
+            // ✅ Salva anche in localStorage per consistenza
+            localStorage.setItem('user_data', JSON.stringify(normalizedData));
+            
             console.log('[AUTH] User loaded successfully:', {
                 id: normalizedData.user.id,
                 username: normalizedData.user.username,
                 role: normalizedData.user.role,
-                stadium_id: normalizedData.user.stadium_id
+                stadium_id: normalizedData.user.stadium_id,
+                view_type: normalizedData.role_specific_data?.view_type
             });
             
             return normalizedData;
@@ -214,21 +234,35 @@ const Auth = {
      * Get access token
      */
     getToken() {
-        return sessionStorage.getItem('hm_access_token');
+        // ✅ FIXED: Leggi da localStorage invece di sessionStorage
+        return localStorage.getItem('access_token') || localStorage.getItem('hm_access_token');
     },
     
     /**
      * Get refresh token
      */
     getRefreshToken() {
-        return sessionStorage.getItem('hm_refresh_token');
+        // ✅ FIXED: Leggi da localStorage invece di sessionStorage
+        return localStorage.getItem('refresh_token') || localStorage.getItem('hm_refresh_token');
     },
     
     /**
      * Get current user
      */
     getUser() {
-        const userJson = sessionStorage.getItem('hm_user');
+        // Prova prima il nuovo formato
+        let userJson = localStorage.getItem('user_data');
+        if (userJson) {
+            try {
+                const userData = JSON.parse(userJson);
+                return userData.user || userData;
+            } catch (error) {
+                console.error('[AUTH] Failed to parse user_data:', error);
+            }
+        }
+        
+        // Fallback al vecchio formato
+        userJson = localStorage.getItem('hm_user');
         if (!userJson) return null;
         
         try {
@@ -243,7 +277,21 @@ const Auth = {
      * Get user permissions
      */
     getPermissions() {
-        const permissionsJson = sessionStorage.getItem('hm_permissions');
+        // Prova prima dal nuovo formato
+        const userDataJson = localStorage.getItem('user_data');
+        if (userDataJson) {
+            try {
+                const userData = JSON.parse(userDataJson);
+                if (userData.permissions) {
+                    return userData.permissions;
+                }
+            } catch (error) {
+                console.error('[AUTH] Failed to parse user_data:', error);
+            }
+        }
+        
+        // Fallback al vecchio formato
+        const permissionsJson = localStorage.getItem('hm_permissions');
         if (!permissionsJson) return [];
         
         try {

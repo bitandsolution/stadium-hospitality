@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Utility - Password Hash Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Sidebar e Header come nelle altre pagine -->
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar (copia da users.html) -->
+        <aside class="w-64 bg-white shadow-md flex flex-col">
+            <!-- Menu navigation -->
+        </aside>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white shadow-sm z-10">
+                <div class="flex items-center justify-between px-6 py-4">
+                    <h1 class="text-2xl font-bold text-gray-800">
+                        <i data-lucide="wrench" class="inline w-6 h-6 mr-2"></i>
+                        Utility
+                    </h1>
+                    <div id="userInfo" class="flex items-center space-x-4"></div>
+                </div>
+            </header>
+            
+            <!-- Content -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <div class="max-w-2xl mx-auto">
+                    <!-- Warning -->
+                    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                        <div class="flex">
+                            <i data-lucide="alert-triangle" class="text-yellow-400 w-5 h-5 mr-3 flex-shrink-0"></i>
+                            <div>
+                                <p class="text-sm text-yellow-700">
+                                    <strong>Attenzione:</strong> Questa funzionalità è riservata esclusivamente ai Super Admin.
+                                    Utilizzala solo per inserimenti manuali nel database.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Password Hash Generator Card -->
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                            <i data-lucide="key" class="inline w-5 h-5 mr-2"></i>
+                            Generatore Hash Password
+                        </h2>
+                        
+                        <form id="hashForm" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Password da convertire
+                                </label>
+                                <input 
+                                    type="password" 
+                                    id="passwordInput"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                    placeholder="Inserisci la password"
+                                    required
+                                >
+                                <p class="mt-1 text-xs text-gray-500">
+                                    Minimo 8 caratteri, almeno una maiuscola, una minuscola e un numero
+                                </p>
+                            </div>
+                            
+                            <button 
+                                type="submit"
+                                class="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+                            >
+                                <i data-lucide="hash" class="inline w-4 h-4 mr-2"></i>
+                                Genera Hash
+                            </button>
+                        </form>
+                        
+                        <!-- Result -->
+                        <div id="resultContainer" class="mt-6 hidden">
+                            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                <div class="flex items-start justify-between mb-2">
+                                    <label class="block text-sm font-medium text-gray-700">
+                                        Hash generato (bcrypt)
+                                    </label>
+                                    <button 
+                                        id="copyBtn"
+                                        class="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                                    >
+                                        <i data-lucide="copy" class="inline w-4 h-4 mr-1"></i>
+                                        Copia
+                                    </button>
+                                </div>
+                                <code id="hashOutput" class="block text-xs bg-white p-3 rounded border border-gray-300 break-all font-mono"></code>
+                                
+                                <div class="mt-4 text-sm text-gray-600">
+                                    <p class="font-medium mb-2">Come utilizzare:</p>
+                                    <ol class="list-decimal list-inside space-y-1 text-xs">
+                                        <li>Copia l'hash generato</li>
+                                        <li>Inseriscilo nel campo <code class="bg-gray-200 px-1 rounded">password_hash</code> della tabella <code class="bg-gray-200 px-1 rounded">users</code></li>
+                                        <li>Ricorda di impostare <code class="bg-gray-200 px-1 rounded">role = 'super_admin'</code></li>
+                                        <li>Per super admin, <code class="bg-gray-200 px-1 rounded">stadium_id</code> può essere NULL</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="js/auth.js"></script>
+    <script>
+        // Inizializza icone
+        lucide.createIcons();
+        
+        // Check auth
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = 'login.html';
+        }
+        
+        // Verifica ruolo super_admin
+        fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success || data.data.user.role !== 'super_admin') {
+                alert('Accesso negato: solo Super Admin');
+                window.location.href = 'dashboard.html';
+            }
+        });
+        
+        // Form submit
+        document.getElementById('hashForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const password = document.getElementById('passwordInput').value;
+            const resultContainer = document.getElementById('resultContainer');
+            const hashOutput = document.getElementById('hashOutput');
+            
+            try {
+                const response = await fetch('/api/admin/utilities/generate-password-hash', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    hashOutput.textContent = data.data.hash;
+                    resultContainer.classList.remove('hidden');
+                } else {
+                    alert('Errore: ' + (data.message || 'Generazione fallita'));
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Errore di connessione');
+            }
+        });
+        
+        // Copy to clipboard
+        document.getElementById('copyBtn').addEventListener('click', () => {
+            const hash = document.getElementById('hashOutput').textContent;
+            navigator.clipboard.writeText(hash).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.innerHTML = '<i data-lucide="check" class="inline w-4 h-4 mr-1"></i>Copiato!';
+                lucide.createIcons();
+                setTimeout(() => {
+                    btn.innerHTML = '<i data-lucide="copy" class="inline w-4 h-4 mr-1"></i>Copia';
+                    lucide.createIcons();
+                }, 2000);
+            });
+        });
+    </script>
+</body>
+</html>

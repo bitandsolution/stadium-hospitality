@@ -211,6 +211,83 @@ class StadiumController {
         }
     }
 
+    /**
+     * POST /api/admin/stadiums/{id}/logo
+     * Upload stadium logo
+     */
+    public function uploadLogo(int $id): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            // Super admin can upload logo for any stadium
+            // Stadium admin can only upload logo for own stadium
+            if ($decoded->role !== 'super_admin' && $decoded->stadium_id !== $id) {
+                $this->sendError('Access denied to update this stadium', [], 403);
+                return;
+            }
+
+            // Check if file was uploaded
+            if (!isset($_FILES['logo']) || $_FILES['logo']['error'] === UPLOAD_ERR_NO_FILE) {
+                $this->sendError('No file uploaded', [], 400);
+                return;
+            }
+
+            $file = $_FILES['logo'];
+
+            $result = $this->stadiumService->uploadLogo($id, $file);
+
+            $this->sendSuccess([
+                'message' => 'Logo uploaded successfully',
+                'logo_url' => $result['logo_url']
+            ]);
+
+        } catch (Exception $e) {
+            Logger::error('Logo upload failed', [
+                'stadium_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            $this->sendError('Logo upload failed', $e->getMessage(), 400);
+        }
+    }
+
+    /**
+     * DELETE /api/admin/stadiums/{id}/logo
+     * Delete stadium logo
+     */
+    public function deleteLogo(int $id): void {
+        try {
+            $decoded = AuthMiddleware::handle();
+            if (!$decoded) return;
+
+            // Super admin can delete logo for any stadium
+            // Stadium admin can only delete logo for own stadium
+            if ($decoded->role !== 'super_admin' && $decoded->stadium_id !== $id) {
+                $this->sendError('Access denied to update this stadium', [], 403);
+                return;
+            }
+
+            $deleted = $this->stadiumService->deleteLogo($id);
+
+            if ($deleted) {
+                $this->sendSuccess([
+                    'message' => 'Logo deleted successfully'
+                ]);
+            } else {
+                $this->sendError('Failed to delete logo', [], 400);
+            }
+
+        } catch (Exception $e) {
+            Logger::error('Logo deletion failed', [
+                'stadium_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            $this->sendError('Logo deletion failed', $e->getMessage(), 400);
+        }
+    }
+
     // =====================================================
     // UTILITY METHODS
     // =====================================================

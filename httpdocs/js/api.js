@@ -168,11 +168,26 @@ const API = {
     // ===================================
     
     stadiums: {
-        list: () => API.get('/admin/stadiums'),
-        get: (id) => API.get(`/admin/stadiums/${id}`),
-        create: (data) => API.post('/admin/stadiums', data),
-        update: (id, data) => API.put(`/admin/stadiums/${id}`, data),
-        delete: (id) => API.delete(`/admin/stadiums/${id}`)
+        create: async (data) => { return await API.post('/admin/stadiums', data); },
+        list: async (includeInactive = false) => {
+            const params = includeInactive ? { include_inactive: 1 } : {};
+            return await API.get('/admin/stadiums', params);
+        },
+        get: async (stadiumId) => { return await API.get(`/admin/stadiums/${stadiumId}`); },
+        update: async (stadiumId, data) => { return await API.put(`/admin/stadiums/${stadiumId}`, data); },
+        delete: async (stadiumId) => { return await API.delete(`/admin/stadiums/${stadiumId}`); },
+        uploadLogo: async (stadiumId, file) => {
+            const formData = new FormData();
+            formData.append('logo', file);
+            
+            return await fetch(`${CONFIG.API_BASE_URL}/admin/stadiums/${stadiumId}/logo`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem(CONFIG.TOKEN_KEY)}`
+                },
+                body: formData
+            }).then(response => response.json());
+        }
     },
     
     // ===================================

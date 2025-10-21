@@ -23,23 +23,78 @@ class HostessDashboard {
 
     async init() {
         try {
+            console.log('[HOSTESS] Starting initialization...');
+            
             // Check authentication
             if (!Auth.isAuthenticated()) {
+                console.error('[HOSTESS] Not authenticated');
                 window.location.href = 'login.html';
                 return;
             }
 
             // Get user info
-            const user = await Auth.getCurrentUser();
+            console.log('[HOSTESS] Fetching user data...');
+            const userData = await Auth.getCurrentUser();
             
-            // Verify hostess role
-            if (user.role !== 'hostess') {
+            console.log('[HOSTESS] User data received:', userData);
+            
+            // ✅ FIX: Estrai correttamente il ruolo - TUTTI i modi possibili
+            const userRole = userData.user?.role || userData.role;
+            const viewType = userData.role_specific_data?.view_type;
+            
+            console.log('[HOSTESS] User role:', userRole);
+            console.log('[HOSTESS] View type:', viewType);
+            
+            // ✅ VERIFICA MULTIPLA - Accetta se UNO di questi è vero
+            const isHostess = (
+                userRole === 'hostess' ||
+                viewType === 'hostess_checkin' ||
+                (userData.permissions && userData.permissions.includes('checkin_guests'))
+            );
+            
+            console.log('[HOSTESS] Is hostess check:', {
+                userRole,
+                viewType,
+                hasCheckinPermission: userData.permissions?.includes('checkin_guests'),
+                finalResult: isHostess
+            });
+            
+            if (!isHostess) {
+                console.error('[HOSTESS] ❌ Access denied - User is not a hostess');
+                console.error('   User role:', userRole);
+                console.error('   View type:', viewType);
+                console.error('   Permissions:', userData.permissions);
+                
                 Utils.showToast('Accesso negato. Solo per hostess.', 'error');
-                setTimeout(() => window.location.href = 'index.html', 2000);
+                
+                // Redirect alla dashboard corretta per il ruolo
+                setTimeout(() => {
+                    if (userRole === 'stadium_admin') {
+                        console.log('[HOSTESS] Redirecting to admin dashboard');
+                        window.location.href = 'admin-dashboard.html';
+                    } else if (userRole === 'super_admin') {
+                        console.log('[HOSTESS] Redirecting to super admin dashboard');
+                        window.location.href = 'super-admin-dashboard.html';
+                    } else {
+                        console.log('[HOSTESS] Redirecting to login');
+                        window.location.href = 'login.html';
+                    }
+                }, 2000);
                 return;
             }
+            
+            console.log('[HOSTESS] ✅ Access granted');
 
-            this.user = user;
+            // ✅ Salva i dati utente completi
+            this.user = userData.user || userData;
+            this.userData = userData; // Salva anche l'oggetto completo con assigned_rooms
+            
+            console.log('[HOSTESS] Saved user data:', {
+                user: this.user,
+                hasAssignedRooms: !!this.userData.assigned_rooms,
+                assignedRoomsCount: this.userData.assigned_rooms?.length
+            });
+            
             this.setupUI();
             this.attachEventListeners();
             await this.loadGuests();
@@ -50,42 +105,60 @@ class HostessDashboard {
             // Setup pull to refresh
             this.setupPullToRefresh();
             
+            console.log('[HOSTESS] ✅ Initialization complete');
+            
         } catch (error) {
-            console.error('Init error:', error);
-            this.showError('Errore di inizializzazione');
+            console.error('[HOSTESS] ❌ Init error:', error);
+            this.showError('Errore di inizializzazione: ' + error.message);
         }
     }
 
     setupUI() {
-        // Update user info in header
-        document.getElementById('userName').textContent = this.user.full_name || this.user.username;
+        console.log('[HOSTESS] Setting up UI...');
         
-        // Get assigned rooms (from user data if available)
-        if (this.user.assigned_rooms) {
-            document.getElementById('userRoom').textContent = this.user.assigned_rooms;
+        // Update user info in header
+        const userName = this.user.full_name || this.user.username || 'Hostess';
+        document.getElementById('userName').textContent = userName;
+        
+        // ✅ FIX: Usa userData invece di user per assigned_rooms
+        if (this.userData.assigned_rooms && this.userData.assigned_rooms.length > 0) {
+            const roomNames = this.userData.assigned_rooms.map(r => r.room_name).join(', ');
+            document.getElementById('userRoom').textContent = roomNames;
+            console.log('[HOSTESS] Assigned rooms:', roomNames);
         } else {
-            document.getElementById('userRoom').textContent = 'Tutte le sale assegnate';
+            document.getElementById('userRoom').textContent = 'Nessuna sala assegnata';
+            console.warn('[HOSTESS] No assigned rooms found');
         }
     }
 
     attachEventListeners() {
+        console.log('[HOSTESS] Attaching event listeners...');
+        
         // Search input
         const searchInput = document.getElementById('searchInput');
         const clearSearch = document.getElementById('clearSearch');
         
-        searchInput.addEventListener('input', (e) => {
-            this.searchQuery = e.target.value.toLowerCase().trim();
-            clearSearch.classList.toggle('hidden', !this.searchQuery);
-            this.filterGuests();
-        });
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.searchQuery = e.target.value.toLowerCase().trim();
+                if (clearSearch) {
+                    clearSearch.classList.toggle('hidden', !this.searchQuery);
+                }
+                this.filterGuests();
+            });
+        }
         
-        clearSearch.addEventListener('click', () => {
-            searchInput.value = '';
-            this.searchQuery = '';
-            clearSearch.classList.add('hidden');
-            this.filterGuests();
-            searchInput.focus();
-        });
+        if (clearSearch) {
+            clearSearch.addEventListener('click', () => {
+                if (searchInput) {
+                    searchInput.value = '';
+                    this.searchQuery = '';
+                    clearSearch.classList.add('hidden');
+                    this.filterGuests();
+                    searchInput.focus();
+                }
+            });
+        }
 
         // Filter buttons
         document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -97,26 +170,44 @@ class HostessDashboard {
         });
 
         // Menu
-        document.getElementById('menuBtn').addEventListener('click', () => this.openMenu());
-        document.getElementById('closeMenu').addEventListener('click', () => this.closeMenu());
-        document.getElementById('menuOverlay').addEventListener('click', (e) => {
-            if (e.target.id === 'menuOverlay') this.closeMenu();
-        });
+        const menuBtn = document.getElementById('menuBtn');
+        const closeMenu = document.getElementById('closeMenu');
+        const menuOverlay = document.getElementById('menuOverlay');
+        
+        if (menuBtn) menuBtn.addEventListener('click', () => this.openMenu());
+        if (closeMenu) closeMenu.addEventListener('click', () => this.closeMenu());
+        if (menuOverlay) {
+            menuOverlay.addEventListener('click', (e) => {
+                if (e.target.id === 'menuOverlay') this.closeMenu();
+            });
+        }
 
         // Logout
-        document.getElementById('logoutBtn').addEventListener('click', () => this.handleLogout());
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this.handleLogout());
+        }
 
         // Retry button
-        document.getElementById('retryBtn').addEventListener('click', () => this.loadGuests());
+        const retryBtn = document.getElementById('retryBtn');
+        if (retryBtn) {
+            retryBtn.addEventListener('click', () => this.loadGuests());
+        }
 
         // Toast close
-        document.getElementById('closeToast').addEventListener('click', () => {
-            document.getElementById('toast').classList.add('hidden');
-        });
+        const closeToast = document.getElementById('closeToast');
+        if (closeToast) {
+            closeToast.addEventListener('click', () => {
+                const toast = document.getElementById('toast');
+                if (toast) toast.classList.add('hidden');
+            });
+        }
     }
 
     async loadGuests(showLoading = true) {
         try {
+            console.log('[HOSTESS] Loading guests...');
+            
             if (showLoading) {
                 this.showLoading();
             }
@@ -127,8 +218,12 @@ class HostessDashboard {
                 access_status: this.currentFilter === 'all' ? null : this.currentFilter
             });
 
+            console.log('[HOSTESS] API response:', response);
+
             if (response.success) {
                 this.guests = response.data.guests || [];
+                console.log('[HOSTESS] Loaded', this.guests.length, 'guests');
+                
                 this.updateStats();
                 this.filterGuests();
                 this.hideLoading();
@@ -141,7 +236,7 @@ class HostessDashboard {
             }
 
         } catch (error) {
-            console.error('Load guests error:', error);
+            console.error('[HOSTESS] Load guests error:', error);
             this.hideLoading();
             this.showError(error.message || 'Errore di connessione');
         }
@@ -153,15 +248,12 @@ class HostessDashboard {
         const toastIcon = document.getElementById('toastIcon');
         
         if (!toast || !toastMessage) {
-            // Fallback: usa console se toast non esiste
             console.log(`[Toast ${type}]:`, message);
             return;
         }
         
-        // Set message
         toastMessage.textContent = message;
         
-        // Set icon based on type
         const icons = {
             success: '<i data-lucide="check-circle" class="w-5 h-5 text-green-600"></i>',
             error: '<i data-lucide="alert-circle" class="w-5 h-5 text-red-600"></i>',
@@ -173,11 +265,9 @@ class HostessDashboard {
             lucide.createIcons();
         }
         
-        // Show toast
         toast.classList.remove('hidden');
         toast.style.transform = 'translateY(0)';
         
-        // Auto-hide after 3 seconds
         setTimeout(() => {
             toast.style.transform = 'translateY(-8rem)';
             setTimeout(() => {
@@ -189,7 +279,6 @@ class HostessDashboard {
     filterGuests() {
         let filtered = [...this.guests];
 
-        // Apply filter
         if (this.currentFilter === 'checked_in') {
             filtered = filtered.filter(g => g.access_status === 'checked_in');
         } else if (this.currentFilter === 'not_checked_in') {
@@ -200,7 +289,6 @@ class HostessDashboard {
             );
         }
 
-        // Apply search
         if (this.searchQuery) {
             filtered = filtered.filter(g => {
                 const fullName = `${g.first_name} ${g.last_name}`.toLowerCase();
@@ -219,7 +307,7 @@ class HostessDashboard {
         const emptyState = document.getElementById('emptyState');
         
         if (!container) {
-            console.error('guestsList container not found');
+            console.error('[HOSTESS] guestsList container not found');
             return;
         }
         
@@ -247,7 +335,6 @@ class HostessDashboard {
                 <div class="guest-card bg-white rounded-lg p-3 shadow-sm border-l-4 ${isCheckedIn ? 'border-green-500' : 'border-orange-400'}" 
                     data-guest-id="${guest.id}">
                     <div class="flex items-center justify-between gap-3">
-                        <!-- Guest Info -->
                         <div class="flex-1 min-w-0"
                             onclick="HostessDashboardInstance.showGuestDetail(${guest.id})"
                             style="cursor: pointer;">
@@ -260,7 +347,6 @@ class HostessDashboard {
                             </div>
                         </div>
                         
-                        <!-- Action Button -->
                         ${isCheckedIn ? `
                             <button 
                                 onclick="event.stopPropagation(); HostessDashboardInstance.quickCheckout(${guest.id}, '${lastName} ${firstName}')"
@@ -281,44 +367,7 @@ class HostessDashboard {
             `;
         }).join('');
 
-        // Re-initialize Lucide icons
         lucide.createIcons();
-    }
-
-    getVipBorderColor(vipLevel) {
-        const colors = {
-            'ultra_vip': 'border-purple-500',
-            'vip': 'border-blue-500',
-            'premium': 'border-green-500',
-            'standard': 'border-gray-300'
-        };
-        return colors[vipLevel] || colors.standard;
-    }
-
-    getVipBadge(vipLevel) {
-        if (vipLevel === 'ultra_vip') {
-            return '<span class="status-badge inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Ultra VIP</span>';
-        } else if (vipLevel === 'vip') {
-            return '<span class="status-badge inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">VIP</span>';
-        } else if (vipLevel === 'premium') {
-            return '<span class="status-badge inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Premium</span>';
-        }
-        return '';
-    }
-
-    getStatusBadge(status) {
-        if (status === 'checked_in') {
-            return '<span class="status-badge inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"><i data-lucide="check" class="w-3 h-3 mr-1"></i>Check-in</span>';
-        }
-        return '<span class="status-badge inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800"><i data-lucide="clock" class="w-3 h-3 mr-1"></i>Attesa</span>';
-    }
-
-    formatTime(timestamp) {
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString('it-IT', { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-        });
     }
 
     updateStats() {
@@ -326,9 +375,13 @@ class HostessDashboard {
         this.stats.checkedIn = this.guests.filter(g => g.access_status === 'checked_in').length;
         this.stats.pending = this.stats.total - this.stats.checkedIn;
 
-        document.getElementById('statTotal').textContent = this.stats.total;
-        document.getElementById('statCheckedIn').textContent = this.stats.checkedIn;
-        document.getElementById('statPending').textContent = this.stats.pending;
+        const statTotal = document.getElementById('statTotal');
+        const statCheckedIn = document.getElementById('statCheckedIn');
+        const statPending = document.getElementById('statPending');
+        
+        if (statTotal) statTotal.textContent = this.stats.total;
+        if (statCheckedIn) statCheckedIn.textContent = this.stats.checkedIn;
+        if (statPending) statPending.textContent = this.stats.pending;
     }
 
     updateFilterButtons() {
@@ -344,13 +397,14 @@ class HostessDashboard {
     }
 
     async showGuestDetail(guestId) {
-        // Redirect to guest detail page
         window.location.href = `hostess-guest-detail.html?id=${guestId}`;
     }
 
     setupPullToRefresh() {
         const mainContent = document.getElementById('mainContent');
         const indicator = document.getElementById('ptrIndicator');
+        
+        if (!mainContent || !indicator) return;
 
         mainContent.addEventListener('touchstart', (e) => {
             if (mainContent.scrollTop === 0) {
@@ -386,7 +440,7 @@ class HostessDashboard {
                 indicator.classList.add('active');
                 
                 await this.loadGuests(false);
-                Utils.showToast('Dati aggiornati', 'success');
+                this.showToast('Dati aggiornati', 'success');
                 
                 setTimeout(() => {
                     indicator.classList.remove('active');
@@ -404,7 +458,6 @@ class HostessDashboard {
     }
 
     startAutoRefresh() {
-        // Auto-refresh ogni 30 secondi
         this.refreshInterval = setInterval(() => {
             this.loadGuests(false);
         }, 30000);
@@ -418,33 +471,43 @@ class HostessDashboard {
     }
 
     openMenu() {
-        document.getElementById('menuOverlay').classList.remove('hidden');
-        setTimeout(() => {
-            document.getElementById('menuPanel').style.transform = 'translateX(0)';
-        }, 10);
+        const overlay = document.getElementById('menuOverlay');
+        const panel = document.getElementById('menuPanel');
+        
+        if (overlay) overlay.classList.remove('hidden');
+        if (panel) {
+            setTimeout(() => {
+                panel.style.transform = 'translateX(0)';
+            }, 10);
+        }
     }
 
     closeMenu() {
-        document.getElementById('menuPanel').style.transform = 'translateX(100%)';
-        setTimeout(() => {
-            document.getElementById('menuOverlay').classList.add('hidden');
-        }, 300);
+        const overlay = document.getElementById('menuOverlay');
+        const panel = document.getElementById('menuPanel');
+        
+        if (panel) panel.style.transform = 'translateX(100%)';
+        if (overlay) {
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+            }, 300);
+        }
     }
 
     async handleLogout() {
         if (confirm('Vuoi davvero uscire?')) {
             try {
                 await Auth.logout();
-                window.location.href = 'login.html';
             } catch (error) {
-                Utils.showToast('Errore durante il logout', 'error');
+                console.error('[HOSTESS] Logout error:', error);
             }
         }
     }
 
     async quickCheckin(guestId, guestName) {
-        // Nessuna conferma per check-in (veloce)
         try {
+            console.log('[HOSTESS] Quick check-in:', guestId, guestName);
+            
             const result = await API.guests.checkin(guestId);
             
             if (result.success) {
@@ -459,18 +522,19 @@ class HostessDashboard {
                 this.showToast(`✓ Check-in: ${guestName}`, 'success');
             }
         } catch (error) {
-            console.error('Quick check-in error:', error);
+            console.error('[HOSTESS] Quick check-in error:', error);
             this.showToast('Errore durante il check-in', 'error');
         }
     }
 
     async quickCheckout(guestId, guestName) {
-        // Conferma per check-out (operazione più critica)
         if (!confirm(`Confermi check-out per ${guestName}?`)) {
             return;
         }
         
         try {
+            console.log('[HOSTESS] Quick check-out:', guestId, guestName);
+            
             const result = await API.guests.checkout(guestId);
             
             if (result.success) {
@@ -485,7 +549,7 @@ class HostessDashboard {
                 this.showToast(`✓ Check-out: ${guestName}`, 'success');
             }
         } catch (error) {
-            console.error('Quick check-out error:', error);
+            console.error('[HOSTESS] Quick check-out error:', error);
             this.showToast('Errore durante il check-out', 'error');
         }
     }
@@ -506,25 +570,18 @@ class HostessDashboard {
         const loadingSkeleton = document.getElementById('loadingSkeleton');
         const guestsList = document.getElementById('guestsList');
         
-        if (loadingSkeleton) {
-            loadingSkeleton.classList.add('hidden');
-        }
-        if (guestsList) {
-            guestsList.classList.remove('hidden');
-        }
+        if (loadingSkeleton) loadingSkeleton.classList.add('hidden');
+        if (guestsList) guestsList.classList.remove('hidden');
     }
 
     showEmpty(message) {
-        document.getElementById('guestsList').classList.add('hidden');
-        document.getElementById('emptyState').classList.remove('hidden');
-        document.getElementById('errorState').classList.add('hidden');
-    }
-
-    showError(message) {
-        document.getElementById('guestsList').classList.add('hidden');
-        document.getElementById('emptyState').classList.add('hidden');
-        document.getElementById('errorState').classList.remove('hidden');
-        document.getElementById('errorMessage').textContent = message;
+        const guestsList = document.getElementById('guestsList');
+        const emptyState = document.getElementById('emptyState');
+        const errorState = document.getElementById('errorState');
+        
+        if (guestsList) guestsList.classList.add('hidden');
+        if (emptyState) emptyState.classList.remove('hidden');
+        if (errorState) errorState.classList.add('hidden');
     }
 
     showError(message) {
@@ -532,28 +589,23 @@ class HostessDashboard {
         const emptyState = document.getElementById('emptyState');
         const errorState = document.getElementById('errorState');
         const loadingSkeleton = document.getElementById('loadingSkeleton');
+        const errorMessage = document.getElementById('errorMessage');
         
-        // Hide all states
         if (guestsList) guestsList.classList.add('hidden');
         if (emptyState) emptyState.classList.add('hidden');
         if (loadingSkeleton) loadingSkeleton.classList.add('hidden');
         
-        // Show error
-        if (errorState) {
-            errorState.classList.remove('hidden');
-            const errorMessage = document.getElementById('errorMessage');
-            if (errorMessage) {
-                errorMessage.textContent = message;
-            }
-        }
+        if (errorState) errorState.classList.remove('hidden');
+        if (errorMessage) errorMessage.textContent = message;
         
-        console.error('Dashboard Error:', message);
+        console.error('[HOSTESS] Dashboard Error:', message);
     }
 }
 
 // Initialize dashboard when DOM is ready
 let HostessDashboardInstance;
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[HOSTESS] DOM loaded, creating dashboard instance...');
     HostessDashboardInstance = new HostessDashboard();
 });
 

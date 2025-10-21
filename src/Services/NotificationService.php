@@ -61,22 +61,53 @@ class NotificationService {
                 $guestId
             );
 
-            // Send to all stadium admins
             $sentCount = 0;
+            $failedEmails = [];
+            
             foreach ($admins as $admin) {
                 if (!empty($admin['email'])) {
-                    if (self::sendEmail($admin['email'], $subject, $body)) {
+                    $sent = false;
+                    $attempts = 0;
+                    $maxAttempts = 2; // Retry once
+                    
+                    while (!$sent && $attempts < $maxAttempts) {
+                        $attempts++;
+                        $sent = self::sendEmail($admin['email'], $subject, $body);
+                        
+                        if (!$sent && $attempts < $maxAttempts) {
+                            // Wait 2 seconds before retry
+                            sleep(2);
+                            Logger::warning('Email send failed, retrying...', [
+                                'attempt' => $attempts,
+                                'admin_email' => $admin['email']
+                            ]);
+                        }
+                    }
+                    
+                    if ($sent) {
                         $sentCount++;
+                    } else {
+                        $failedEmails[] = $admin['email'];
                     }
                 }
             }
 
-            Logger::info('Guest edit notification sent', [
-                'guest_id' => $guestId,
-                'hostess_id' => $hostessId,
-                'stadium_id' => $stadiumId,
-                'admins_notified' => $sentCount
-            ]);
+            if ($sentCount > 0) {
+                Logger::info('Guest edit notification sent', [
+                    'guest_id' => $guestId,
+                    'hostess_id' => $hostessId,
+                    'stadium_id' => $stadiumId,
+                    'admins_notified' => $sentCount,
+                    'failed_count' => count($failedEmails)
+                ]);
+            }
+            
+            if (!empty($failedEmails)) {
+                Logger::error('Some notification emails failed', [
+                    'guest_id' => $guestId,
+                    'failed_emails' => $failedEmails
+                ]);
+            }
 
             return $sentCount > 0;
 
@@ -124,11 +155,20 @@ class NotificationService {
 
         foreach ($changes as $field => $change) {
             $label = $fieldLabels[$field] ?? ucfirst(str_replace('_', ' ', $field));
-            $oldValue = htmlspecialchars($change['old'] ?? '—');
-            $newValue = htmlspecialchars($change['new'] ?? '—');
+
+            $oldValue = htmlspecialchars(
+                $change['old'] ?? '—', 
+                ENT_QUOTES | ENT_HTML5, 
+                'UTF-8'
+            );
+            $newValue = htmlspecialchars(
+                $change['new'] ?? '—', 
+                ENT_QUOTES | ENT_HTML5, 
+                'UTF-8'
+            );
 
             $html .= '<tr>';
-            $html .= '<td><strong>' . $label . '</strong></td>';
+            $html .= '<td><strong>' . htmlspecialchars($label, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '</strong></td>';
             $html .= '<td style="color: #999;">' . $oldValue . '</td>';
             $html .= '<td style="color: #2563eb; font-weight: bold;">' . $newValue . '</td>';
             $html .= '</tr>';
@@ -151,59 +191,126 @@ class NotificationService {
     ): string {
         $appUrl = $_ENV['APP_URL'] ?? 'https://checkindigitale.cloud';
         $timestamp = date('d/m/Y H:i:s');
+        
+        // ✅ Escape HTML con UTF-8
+        $guestNameEscaped = htmlspecialchars($guestName, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $hostessNameEscaped = htmlspecialchars($hostessName, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         return <<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; }
-        .content { background-color: #f9fafb; padding: 20px; margin: 20px 0; }
-        .footer { text-align: center; color: #666; font-size: 12px; padding: 20px; }
-        .alert { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; margin: 16px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h2>🔔 Modifica Dati Ospite</h2>
-        </div>
-        
-        <div class="content">
-            <div class="alert">
-                <strong>⚠️ Attenzione:</strong> Una hostess ha modificato i dati di un ospite.
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { 
+                font-family: Arial, sans-serif; 
+                line-height: 1.6; 
+                color: #333;
+                margin: 0;
+                padding: 0;
+            }
+            .container { 
+                max-width: 600px; 
+                margin: 0 auto; 
+                padding: 20px; 
+            }
+            .header { 
+                background-color: #2563eb; 
+                color: white; 
+                padding: 20px; 
+                text-align: center;
+                border-radius: 8px 8px 0 0;
+            }
+            .content { 
+                background-color: #f9fafb; 
+                padding: 20px; 
+                margin: 0;
+                border-left: 1px solid #e5e7eb;
+                border-right: 1px solid #e5e7eb;
+            }
+            .footer { 
+                text-align: center; 
+                color: #666; 
+                font-size: 12px; 
+                padding: 20px;
+                background-color: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 0 0 8px 8px;
+            }
+            .alert { 
+                background-color: #fef3c7; 
+                border-left: 4px solid #f59e0b; 
+                padding: 12px; 
+                margin: 16px 0;
+                border-radius: 4px;
+            }
+            .button {
+                background-color: #2563eb;
+                color: white;
+                padding: 12px 24px;
+                text-decoration: none;
+                border-radius: 6px;
+                display: inline-block;
+                margin-top: 16px;
+                font-weight: 500;
+            }
+            .button:hover {
+                background-color: #1d4ed8;
+            }
+            
+            /* ✅ Responsive */
+            @media only screen and (max-width: 600px) {
+                .container { 
+                    padding: 10px !important; 
+                }
+                table { 
+                    font-size: 14px !important; 
+                }
+                .header h2 {
+                    font-size: 18px !important;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2 style="margin: 0;">🔔 Modifica Dati Ospite</h2>
             </div>
             
-            <h3>Dettagli Operazione:</h3>
-            <ul>
-                <li><strong>Ospite:</strong> {$guestName}</li>
-                <li><strong>ID Ospite:</strong> #{$guestId}</li>
-                <li><strong>Modificato da:</strong> {$hostessName}</li>
-                <li><strong>Data/Ora:</strong> {$timestamp}</li>
-            </ul>
+            <div class="content">
+                <div class="alert">
+                    <strong>⚠️ Attenzione:</strong> Una hostess ha modificato i dati di un ospite.
+                </div>
+                
+                <h3>Dettagli Operazione:</h3>
+                <ul style="list-style: none; padding: 0;">
+                    <li style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Ospite:</strong> {$guestNameEscaped}</li>
+                    <li style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>ID Ospite:</strong> #{$guestId}</li>
+                    <li style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Modificato da:</strong> {$hostessNameEscaped}</li>
+                    <li style="padding: 8px 0;"><strong>Data/Ora:</strong> {$timestamp}</li>
+                </ul>
+                
+                <h3 style="margin-top: 24px;">Modifiche Effettuate:</h3>
+                {$changesHtml}
+                
+                <div style="text-align: center; margin-top: 24px;">
+                    <a href="{$appUrl}/admin-dashboard.html" 
+                    class="button">
+                        Visualizza Dashboard
+                    </a>
+                </div>
+            </div>
             
-            <h3>Modifiche Effettuate:</h3>
-            {$changesHtml}
-            
-            <p style="margin-top: 20px;">
-                <a href="{$appUrl}/admin/guests/{$guestId}" 
-                   style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
-                    Visualizza Ospite
-                </a>
-            </p>
+            <div class="footer">
+                <p style="margin: 8px 0;">Questa è una notifica automatica del sistema Hospitality Manager.</p>
+                <p style="margin: 8px 0; color: #999;">Non rispondere a questa email.</p>
+            </div>
         </div>
-        
-        <div class="footer">
-            <p>Questa è una notifica automatica del sistema Hospitality Manager.</p>
-            <p>Non rispondere a questa email.</p>
-        </div>
-    </div>
-</body>
-</html>
-HTML;
+    </body>
+    </html>
+    HTML;
     }
 
     /**
