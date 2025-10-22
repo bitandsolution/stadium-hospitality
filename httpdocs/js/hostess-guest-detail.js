@@ -8,7 +8,8 @@ class HostessGuestDetail {
         this.guestId = null;
         this.guest = null;
         this.user = null;
-        this.userData = null; // ✅ Aggiungi questo
+        this.userData = null;
+        this.confirmCallback = null;
         
         this.init();
     }
@@ -25,18 +26,19 @@ class HostessGuestDetail {
             }
 
             // Get user info
+            console.log('[GUEST-DETAIL] Fetching user data...');
             const userData = await Auth.getCurrentUser();
             
             console.log('[GUEST-DETAIL] User data received:', userData);
             
-            // ✅ FIX: Estrai correttamente il ruolo - VERIFICA MULTIPLA
+            // ✅ FIX: Estrai correttamente il ruolo
             const userRole = userData.user?.role || userData.role;
             const viewType = userData.role_specific_data?.view_type;
             
             console.log('[GUEST-DETAIL] User role:', userRole);
             console.log('[GUEST-DETAIL] View type:', viewType);
             
-            // ✅ VERIFICA MULTIPLA - Accetta se UNO di questi è vero
+            // ✅ VERIFICA MULTIPLA
             const isHostess = (
                 userRole === 'hostess' ||
                 viewType === 'hostess_checkin' ||
@@ -51,31 +53,15 @@ class HostessGuestDetail {
             });
             
             if (!isHostess) {
-                console.error('[GUEST-DETAIL] ❌ Access denied - User is not a hostess');
-                console.error('   User role:', userRole);
-                console.error('   View type:', viewType);
-                
-                Utils.showToast('Accesso negato. Solo per hostess.', 'error');
-                
-                // ✅ Redirect alla dashboard corretta per il ruolo
-                setTimeout(() => {
-                    if (userRole === 'stadium_admin') {
-                        console.log('[GUEST-DETAIL] Redirecting to admin dashboard');
-                        window.location.href = 'admin-dashboard.html';
-                    } else if (userRole === 'super_admin') {
-                        console.log('[GUEST-DETAIL] Redirecting to super admin dashboard');
-                        window.location.href = 'super-admin-dashboard.html';
-                    } else {
-                        console.log('[GUEST-DETAIL] Redirecting to hostess dashboard');
-                        window.location.href = 'hostess-dashboard.html';
-                    }
-                }, 2000);
+                console.error('[GUEST-DETAIL] ❌ Access denied');
+                alert('Accesso negato. Solo per hostess.');
+                window.location.href = 'hostess-dashboard.html';
                 return;
             }
             
             console.log('[GUEST-DETAIL] ✅ Access granted');
             
-            // ✅ Salva i dati utente completi
+            // Salva i dati utente
             this.user = userData.user || userData;
             this.userData = userData;
 
@@ -101,11 +87,38 @@ class HostessGuestDetail {
     }
 
     attachEventListeners() {
+        console.log('[GUEST-DETAIL] Attaching event listeners...');
+        
         // Back button
         const backBtn = document.getElementById('backBtn');
         if (backBtn) {
             backBtn.addEventListener('click', () => {
                 window.location.href = 'hostess-dashboard.html';
+            });
+        }
+
+        // Edit button
+        const editBtn = document.getElementById('editGuestBtn');
+        if (editBtn) {
+            editBtn.addEventListener('click', () => {
+                this.showEditModal();
+            });
+        }
+
+        // More options
+        const moreBtn = document.getElementById('moreBtn');
+        const moreMenu = document.getElementById('moreMenu');
+        const cancelMoreBtn = document.getElementById('cancelMoreBtn');
+        
+        if (moreBtn && moreMenu) {
+            moreBtn.addEventListener('click', () => {
+                moreMenu.style.display = 'flex';
+            });
+        }
+        
+        if (cancelMoreBtn && moreMenu) {
+            cancelMoreBtn.addEventListener('click', () => {
+                moreMenu.style.display = 'none';
             });
         }
 
@@ -115,7 +128,7 @@ class HostessGuestDetail {
             checkinBtn.addEventListener('click', () => {
                 this.showConfirmation(
                     'Conferma Check-in',
-                    'Vuoi effettuare il check-in di questo ospite?',
+                    `Vuoi effettuare il check-in?`,
                     () => this.performCheckin()
                 );
             });
@@ -127,9 +140,28 @@ class HostessGuestDetail {
             checkoutBtn.addEventListener('click', () => {
                 this.showConfirmation(
                     'Conferma Check-out',
-                    'Vuoi effettuare il check-out di questo ospite?',
+                    `Vuoi effettuare il check-out?`,
                     () => this.performCheckout()
                 );
+            });
+        }
+
+        // Confirmation modal
+        const confirmYes = document.getElementById('confirmYes');
+        const confirmNo = document.getElementById('confirmNo');
+        
+        if (confirmYes) {
+            confirmYes.addEventListener('click', () => {
+                this.hideConfirmation();
+                if (this.confirmCallback) {
+                    this.confirmCallback();
+                }
+            });
+        }
+        
+        if (confirmNo) {
+            confirmNo.addEventListener('click', () => {
+                this.hideConfirmation();
             });
         }
 
@@ -141,306 +173,218 @@ class HostessGuestDetail {
             });
         }
 
-        // Modal buttons
-        const confirmYes = document.getElementById('confirmYes');
-        if (confirmYes) {
-            confirmYes.addEventListener('click', () => {
-                if (this.confirmCallback) {
-                    this.confirmCallback();
-                }
-                this.hideConfirmation();
-            });
-        }
-
-        const confirmNo = document.getElementById('confirmNo');
-        if (confirmNo) {
-            confirmNo.addEventListener('click', () => {
-                this.hideConfirmation();
-            });
-        }
-        
-        // More menu
-        const moreBtn = document.getElementById('moreBtn');
-        if (moreBtn) {
-            moreBtn.addEventListener('click', () => {
-                const moreMenu = document.getElementById('moreMenu');
-                if (moreMenu) moreMenu.style.display = 'flex';
-            });
-        }
-
-        const cancelMoreBtn = document.getElementById('cancelMoreBtn');
-        if (cancelMoreBtn) {
-            cancelMoreBtn.addEventListener('click', () => {
-                const moreMenu = document.getElementById('moreMenu');
-                if (moreMenu) moreMenu.style.display = 'none';
-            });
-        }
-
-        const moreMenu = document.getElementById('moreMenu');
-        if (moreMenu) {
-            moreMenu.addEventListener('click', (e) => {
-                if (e.target.id === 'moreMenu') {
-                    moreMenu.style.display = 'none';
-                }
-            });
-        }
-
-        const editGuestBtn = document.getElementById('editGuestBtn');
-        if (editGuestBtn) {
-            editGuestBtn.addEventListener('click', () => {
-                this.showEditGuestModal();
-            });
-        }
-
-        // Force check-in
+        // Force buttons
         const forceCheckinBtn = document.getElementById('forceCheckinBtn');
         if (forceCheckinBtn) {
             forceCheckinBtn.addEventListener('click', () => {
-                if (confirm('ATTENZIONE: Stai forzando lo stato a CHECK-IN.\nQuesta operazione sovrascriverà eventuali errori.\n\nContinuare?')) {
+                if (confirm('ATTENZIONE: Stai forzando il check-in. Continuare?')) {
                     this.forceState('entry');
                 }
             });
         }
 
-        // Force check-out
         const forceCheckoutBtn = document.getElementById('forceCheckoutBtn');
         if (forceCheckoutBtn) {
             forceCheckoutBtn.addEventListener('click', () => {
-                if (confirm('ATTENZIONE: Stai forzando lo stato a CHECK-OUT.\nQuesta operazione sovrascriverà eventuali errori.\n\nContinuare?')) {
+                if (confirm('ATTENZIONE: Stai forzando il check-out. Continuare?')) {
                     this.forceState('exit');
                 }
             });
         }
     }
 
-    async forceState(accessType) {
-        try {
-            const moreMenu = document.getElementById('moreMenu');
-            if (moreMenu) moreMenu.style.display = 'none';
-            
-            this.showProcessing();
-
-            const endpoint = accessType === 'entry' ? 'checkin' : 'checkout';
-            
-            const response = await API.guests[endpoint](this.guestId);
-
-            if (response.success) {
-                const newStatus = accessType === 'entry' ? 'checked_in' : 'not_checked_in';
-                
-                this.guest.access_status = newStatus;
-                this.guest.last_access_time = accessType === 'entry' ? new Date().toISOString() : null;
-
-                this.showSuccess(
-                    'Stato forzato con successo!',
-                    `Ospite ora: ${accessType === 'entry' ? 'CHECK-IN' : 'CHECK-OUT'}`
-                );
-
-                setTimeout(() => {
-                    this.hideSuccess();
-                    this.updateStatusIndicator(newStatus, this.guest.last_access_time);
-                    this.updateActionButtons(newStatus);
-                    this.hideProcessing();
-                }, 2000);
-
-            } else {
-                throw new Error(response.message);
-            }
-
-        } catch (error) {
-            console.error('[GUEST-DETAIL] Force state error:', error);
-            
-            const confirmForce = confirm('Errore backend. Vuoi aggiornare solo visualmente lo stato?\n\nATTENZIONE: Il database potrebbe non essere allineato.');
-            
-            if (confirmForce) {
-                const newStatus = accessType === 'entry' ? 'checked_in' : 'not_checked_in';
-                this.guest.access_status = newStatus;
-                this.updateStatusIndicator(newStatus);
-                this.updateActionButtons(newStatus);
-            }
-            
-            this.hideProcessing();
-        }
-    }
-
     async loadGuestDetail() {
         try {
-            console.log('[GUEST-DETAIL] Loading guest details...');
+            console.log('[GUEST-DETAIL] Loading guest detail...');
             this.showLoading();
 
             const response = await API.guests.get(this.guestId);
 
-            console.log('[GUEST-DETAIL] API response:', response);
-
-            if (response.success) {
+            if (response.success && response.data.guest) {
                 this.guest = response.data.guest;
                 console.log('[GUEST-DETAIL] Guest loaded:', this.guest);
                 
                 this.renderGuestDetail();
                 this.hideLoading();
             } else {
-                throw new Error(response.message || 'Errore nel caricamento ospite');
+                throw new Error(response.message || 'Ospite non trovato');
             }
 
         } catch (error) {
-            console.error('[GUEST-DETAIL] Load guest error:', error);
+            console.error('[GUEST-DETAIL] Load error:', error);
             this.hideLoading();
-            this.showError(error.message || 'Errore di connessione');
+            this.showError(error.message || 'Errore nel caricamento');
         }
     }
 
     renderGuestDetail() {
-        const g = this.guest;
+        console.log('[GUEST-DETAIL] Rendering guest detail...');
 
-        // Update guest card
+        // ✅ Guest name (con controllo null)
         const guestName = document.getElementById('guestName');
-        if (guestName) guestName.textContent = `${g.last_name} ${g.first_name}`;
-        
+        if (guestName) {
+            guestName.textContent = `${this.guest.first_name} ${this.guest.last_name}`;
+        }
+
+        // ✅ Company (con controllo null)
         const guestCompany = document.getElementById('guestCompany');
-        if (g.company_name && guestCompany) {
-            guestCompany.textContent = g.company_name;
-        } else if (guestCompany) {
-            guestCompany.classList.add('hidden');
+        if (guestCompany) {
+            guestCompany.textContent = this.guest.company_name || '';
+            guestCompany.style.display = this.guest.company_name ? 'block' : 'none';
         }
 
-        // VIP badge
-        const vipBadge = this.getVipBadge(g.vip_level);
-        const vipBadgeEl = document.getElementById('vipBadge');
-        if (vipBadge && vipBadgeEl) {
-            vipBadgeEl.innerHTML = vipBadge;
-        }
+        // VIP Badge
+        this.renderVipBadge();
 
-        // Border color based on VIP level
-        const borderColors = {
-            'ultra_vip': 'border-purple-500',
-            'vip': 'border-blue-500',
-            'premium': 'border-green-500',
-            'standard': 'border-gray-300'
-        };
-        const guestCard = document.getElementById('guestCard');
-        if (guestCard) {
-            guestCard.className = 
-                `bg-white rounded-xl shadow-sm p-6 border-l-4 ${borderColors[g.vip_level] || borderColors.standard}`;
-        }
+        // Status Indicator
+        this.updateStatusIndicator(this.guest.access_status, this.guest.last_access_time);
 
-        // Status indicator
-        this.updateStatusIndicator(g.access_status, g.last_access_time);
-
-        // Room and table info
+        // ✅ Room (con controllo null)
         const guestRoom = document.getElementById('guestRoom');
-        if (guestRoom) guestRoom.textContent = g.room_name;
-        
+        if (guestRoom) {
+            guestRoom.textContent = this.guest.room_name || 'Sala non assegnata';
+        }
+
+        // ✅ Table (con controllo null)
         const guestTable = document.getElementById('guestTable');
         const tableInfo = document.getElementById('tableInfo');
-        if (g.table_number && guestTable) {
-            guestTable.textContent = `Tavolo ${g.table_number}`;
-        } else if (tableInfo) {
-            tableInfo.classList.add('hidden');
+        if (this.guest.table_number) {
+            if (guestTable) guestTable.textContent = `Tavolo ${this.guest.table_number}`;
+            if (tableInfo) tableInfo.style.display = 'flex';
+        } else {
+            if (tableInfo) tableInfo.style.display = 'none';
         }
 
+        // ✅ Seat (con controllo null)
         const guestSeat = document.getElementById('guestSeat');
         const seatInfo = document.getElementById('seatInfo');
-        if (g.seat_number && guestSeat) {
-            guestSeat.textContent = `Posto ${g.seat_number}`;
-        } else if (seatInfo) {
-            seatInfo.classList.add('hidden');
+        if (this.guest.seat_number) {
+            if (guestSeat) guestSeat.textContent = `Posto ${this.guest.seat_number}`;
+            if (seatInfo) seatInfo.style.display = 'flex';
+        } else {
+            if (seatInfo) seatInfo.style.display = 'none';
         }
 
-        // Contact info
-        const hasEmail = g.contact_email && g.contact_email.trim();
-        const hasPhone = g.contact_phone && g.contact_phone.trim();
+        // Contact Info
+        this.renderContactInfo();
 
-        const emailSection = document.getElementById('emailSection');
-        const phoneSection = document.getElementById('phoneSection');
-        const noContactInfo = document.getElementById('noContactInfo');
-
-        if (hasEmail && emailSection) {
-            emailSection.classList.remove('hidden');
-            const guestEmail = document.getElementById('guestEmail');
-            const emailLink = document.getElementById('emailLink');
-            if (guestEmail) guestEmail.textContent = g.contact_email;
-            if (emailLink) emailLink.href = `mailto:${g.contact_email}`;
-            if (noContactInfo) noContactInfo.classList.add('hidden');
-        }
-
-        if (hasPhone && phoneSection) {
-            phoneSection.classList.remove('hidden');
-            const guestPhone = document.getElementById('guestPhone');
-            const phoneLink = document.getElementById('phoneLink');
-            if (guestPhone) guestPhone.textContent = g.contact_phone;
-            if (phoneLink) phoneLink.href = `tel:${g.contact_phone}`;
-            if (noContactInfo) noContactInfo.classList.add('hidden');
-        }
-
-        if (!hasEmail && !hasPhone && noContactInfo) {
-            noContactInfo.classList.remove('hidden');
-        }
-
-        // Event info
+        // ✅ Event Info (con controllo null)
         const eventName = document.getElementById('eventName');
-        if (eventName) eventName.textContent = g.event_name || 'Evento sconosciuto';
-        
-        if (g.event_date) {
-            const eventDate = new Date(g.event_date);
-            const eventDateEl = document.getElementById('eventDate');
-            if (eventDateEl) {
-                eventDateEl.textContent = eventDate.toLocaleDateString('it-IT', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric'
-                });
-            }
+        const eventDate = document.getElementById('eventDate');
+        if (eventName) eventName.textContent = this.guest.event_name || 'Evento non disponibile';
+        if (eventDate && this.guest.event_date) {
+            const date = new Date(this.guest.event_date);
+            eventDate.textContent = date.toLocaleDateString('it-IT', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
         }
 
-        // Notes
+        // ✅ Notes (con controllo null)
         const notesSection = document.getElementById('notesSection');
         const guestNotes = document.getElementById('guestNotes');
-        if (g.notes && g.notes.trim() && notesSection && guestNotes) {
-            notesSection.classList.remove('hidden');
-            guestNotes.textContent = g.notes;
+        if (this.guest.notes) {
+            if (guestNotes) guestNotes.textContent = this.guest.notes;
+            if (notesSection) notesSection.classList.remove('hidden');
+        } else {
+            if (notesSection) notesSection.classList.add('hidden');
         }
 
         // Action buttons
-        this.updateActionButtons(g.access_status);
+        this.updateActionButtons(this.guest.access_status);
 
-        // Re-initialize icons
-        lucide.createIcons();
+        // ✅ Show main content (con controllo null)
+        const mainContent = document.getElementById('mainContent');
+        if (mainContent) mainContent.classList.remove('hidden');
+    }
+
+    renderVipBadge() {
+        const vipBadge = document.getElementById('vipBadge');
+        if (!vipBadge) return;
+
+        const badges = {
+            'ultra_vip': '<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800">Ultra VIP</span>',
+            'vip': '<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">VIP</span>',
+            'premium': '<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">Premium</span>'
+        };
+
+        vipBadge.innerHTML = badges[this.guest.vip_level] || '';
     }
 
     updateStatusIndicator(status, lastAccessTime) {
         const indicator = document.getElementById('statusIndicator');
-        if (!indicator) return;
+        const guestCard = document.getElementById('guestCard');
         
+        if (!indicator) return;
+
         if (status === 'checked_in') {
-            indicator.className = 'flex items-center space-x-2 py-3 px-4 rounded-lg mb-4 bg-green-50 border border-green-200';
+            const time = lastAccessTime ? new Date(lastAccessTime).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
             indicator.innerHTML = `
                 <i data-lucide="check-circle" class="w-5 h-5 text-green-600"></i>
                 <div class="flex-1">
-                    <div class="text-sm font-medium text-green-900">Check-in effettuato</div>
-                    <div class="text-xs text-green-700">${this.formatDateTime(lastAccessTime)}</div>
+                    <div class="text-sm font-semibold text-green-900">Check-in effettuato</div>
+                    ${time ? `<div class="text-xs text-green-600">Ore ${time}</div>` : ''}
                 </div>
             `;
+            indicator.className = 'flex items-center space-x-2 py-3 px-4 rounded-lg mb-4 bg-green-50';
+            if (guestCard) guestCard.className = 'bg-white rounded-xl shadow-sm p-6 border-l-4 border-green-500';
         } else {
-            indicator.className = 'flex items-center space-x-2 py-3 px-4 rounded-lg mb-4 bg-orange-50 border border-orange-200';
             indicator.innerHTML = `
                 <i data-lucide="clock" class="w-5 h-5 text-orange-600"></i>
                 <div class="flex-1">
-                    <div class="text-sm font-medium text-orange-900">In attesa di check-in</div>
-                    <div class="text-xs text-orange-700">L'ospite non è ancora arrivato</div>
+                    <div class="text-sm font-semibold text-orange-900">In attesa di check-in</div>
                 </div>
             `;
+            indicator.className = 'flex items-center space-x-2 py-3 px-4 rounded-lg mb-4 bg-orange-50';
+            if (guestCard) guestCard.className = 'bg-white rounded-xl shadow-sm p-6 border-l-4 border-orange-400';
         }
 
         lucide.createIcons();
+    }
+
+    renderContactInfo() {
+        const emailSection = document.getElementById('emailSection');
+        const phoneSection = document.getElementById('phoneSection');
+        const noContactInfo = document.getElementById('noContactInfo');
+        const guestEmail = document.getElementById('guestEmail');
+        const guestPhone = document.getElementById('guestPhone');
+        const emailLink = document.getElementById('emailLink');
+        const phoneLink = document.getElementById('phoneLink');
+
+        let hasContact = false;
+
+        if (this.guest.contact_email) {
+            if (guestEmail) guestEmail.textContent = this.guest.contact_email;
+            if (emailLink) emailLink.href = `mailto:${this.guest.contact_email}`;
+            if (emailSection) emailSection.classList.remove('hidden');
+            hasContact = true;
+        } else {
+            if (emailSection) emailSection.classList.add('hidden');
+        }
+
+        if (this.guest.contact_phone) {
+            if (guestPhone) guestPhone.textContent = this.guest.contact_phone;
+            if (phoneLink) phoneLink.href = `tel:${this.guest.contact_phone}`;
+            if (phoneSection) phoneSection.classList.remove('hidden');
+            hasContact = true;
+        } else {
+            if (phoneSection) phoneSection.classList.add('hidden');
+        }
+
+        if (noContactInfo) {
+            noContactInfo.style.display = hasContact ? 'none' : 'block';
+        }
     }
 
     updateActionButtons(status) {
         const actionButtons = document.getElementById('actionButtons');
         const checkinBtn = document.getElementById('checkinBtn');
         const checkoutBtn = document.getElementById('checkoutBtn');
-        
+
         if (actionButtons) actionButtons.classList.remove('hidden');
-        
+
         if (status === 'checked_in') {
             if (checkinBtn) checkinBtn.classList.add('hidden');
             if (checkoutBtn) checkoutBtn.classList.remove('hidden');
@@ -448,8 +392,6 @@ class HostessGuestDetail {
             if (checkinBtn) checkinBtn.classList.remove('hidden');
             if (checkoutBtn) checkoutBtn.classList.add('hidden');
         }
-
-        lucide.createIcons();
     }
 
     async performCheckin() {
@@ -500,10 +442,11 @@ class HostessGuestDetail {
                 );
 
                 this.guest.access_status = 'not_checked_in';
+                this.guest.last_access_time = null;
 
                 setTimeout(() => {
                     this.hideSuccess();
-                    this.updateStatusIndicator('not_checked_in');
+                    this.updateStatusIndicator('not_checked_in', null);
                     this.updateActionButtons('not_checked_in');
                     this.hideProcessing();
                 }, 2000);
@@ -519,29 +462,48 @@ class HostessGuestDetail {
         }
     }
 
-    getVipBadge(vipLevel) {
-        const badges = {
-            'ultra_vip': '<span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">Ultra VIP</span>',
-            'vip': '<span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">VIP</span>',
-            'premium': '<span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Premium</span>'
-        };
-        return badges[vipLevel] || '';
-    }
+    async forceState(accessType) {
+        try {
+            const moreMenu = document.getElementById('moreMenu');
+            if (moreMenu) moreMenu.style.display = 'none';
+            
+            this.showProcessing();
 
-    formatDateTime(timestamp) {
-        if (!timestamp) return '';
-        const date = new Date(timestamp);
-        return date.toLocaleString('it-IT', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+            const endpoint = accessType === 'entry' ? 'checkin' : 'checkout';
+            const response = await API.guests[endpoint](this.guestId);
+
+            if (response.success) {
+                const newStatus = accessType === 'entry' ? 'checked_in' : 'not_checked_in';
+                
+                this.guest.access_status = newStatus;
+                this.guest.last_access_time = accessType === 'entry' ? new Date().toISOString() : null;
+
+                this.showSuccess(
+                    'Stato forzato!',
+                    `Ospite ora: ${accessType === 'entry' ? 'CHECK-IN' : 'CHECK-OUT'}`
+                );
+
+                setTimeout(() => {
+                    this.hideSuccess();
+                    this.updateStatusIndicator(newStatus, this.guest.last_access_time);
+                    this.updateActionButtons(newStatus);
+                    this.hideProcessing();
+                }, 2000);
+
+            } else {
+                throw new Error(response.message);
+            }
+
+        } catch (error) {
+            console.error('[GUEST-DETAIL] Force state error:', error);
+            this.hideProcessing();
+            alert('Errore: ' + error.message);
+        }
     }
 
     showConfirmation(title, message, callback) {
         this.confirmCallback = callback;
+        
         const confirmTitle = document.getElementById('confirmTitle');
         const confirmMessage = document.getElementById('confirmMessage');
         const confirmModal = document.getElementById('confirmModal');
@@ -591,51 +553,42 @@ class HostessGuestDetail {
         const loadingState = document.getElementById('loadingState');
         const mainContent = document.getElementById('mainContent');
         const errorState = document.getElementById('errorState');
-        const actionButtons = document.getElementById('actionButtons');
         
         if (loadingState) loadingState.classList.remove('hidden');
         if (mainContent) mainContent.classList.add('hidden');
         if (errorState) errorState.classList.add('hidden');
-        if (actionButtons) actionButtons.classList.add('hidden');
     }
 
     hideLoading() {
         const loadingState = document.getElementById('loadingState');
-        const mainContent = document.getElementById('mainContent');
-        
         if (loadingState) loadingState.classList.add('hidden');
-        if (mainContent) mainContent.classList.remove('hidden');
     }
 
     showError(message) {
         const loadingState = document.getElementById('loadingState');
         const mainContent = document.getElementById('mainContent');
         const errorState = document.getElementById('errorState');
-        const actionButtons = document.getElementById('actionButtons');
         const errorMessage = document.getElementById('errorMessage');
         
         if (loadingState) loadingState.classList.add('hidden');
         if (mainContent) mainContent.classList.add('hidden');
         if (errorState) errorState.classList.remove('hidden');
-        if (actionButtons) actionButtons.classList.add('hidden');
         if (errorMessage) errorMessage.textContent = message;
-        
-        console.error('[GUEST-DETAIL] Error:', message);
     }
 
     /**
      * Show edit guest modal
      */
-    showEditGuestModal() {
+    async showEditModal() {
         try {
-            console.log('[GUEST-DETAIL] Opening edit guest modal...');
+            console.log('[GUEST-DETAIL] Opening edit modal');
             
             if (!this.guest) {
-                alert('Errore: dati ospite non disponibili');
+                alert('Dati ospite non disponibili');
                 return;
             }
             
-            // Get or create modal
+            // Create modal if not exists
             let modal = document.getElementById('editGuestModal');
             if (!modal) {
                 modal = document.createElement('div');
@@ -646,7 +599,7 @@ class HostessGuestDetail {
             
             const g = this.guest;
             
-            // Build modal HTML - ✅ FIX: Usa HostessGuestDetailInstance invece di HostessDashboardInstance
+            // Build modal HTML
             modal.innerHTML = `
                 <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
                     <!-- Header -->
@@ -655,7 +608,7 @@ class HostessGuestDetail {
                             <i data-lucide="edit" class="w-6 h-6 mr-2"></i>
                             Modifica Ospite
                         </h3>
-                        <button onclick="HostessGuestDetailInstance.closeEditModal()" 
+                        <button onclick="document.getElementById('editGuestModal').classList.add('hidden')" 
                             class="text-white hover:text-gray-200 transition">
                             <i data-lucide="x" class="w-6 h-6"></i>
                         </button>
@@ -666,84 +619,63 @@ class HostessGuestDetail {
                         <div class="flex items-start space-x-2 text-sm">
                             <i data-lucide="info" class="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5"></i>
                             <div class="text-yellow-800">
-                                <strong>Attenzione:</strong> Le modifiche verranno notificate all'amministratore dello stadio via email.
+                                <strong>Attenzione:</strong> Le modifiche verranno notificate all'amministratore.
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Form Content -->
-                    <div class="flex-1 overflow-y-auto px-6 py-4">
-                        <form id="editGuestForm" class="space-y-4">
+                    <!-- Form -->
+                    <form id="editGuestForm" class="flex-1 overflow-y-auto px-6 py-4">
+                        <div class="space-y-4">
                             
-                            <!-- Nome e Cognome -->
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Nome <span class="text-red-500">*</span>
-                                    </label>
-                                    <input type="text" 
-                                        id="editFirstName" 
-                                        name="first_name" 
-                                        required
-                                        maxlength="100"
-                                        value="${this.escapeHtml(g.first_name || '')}"
-                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
-                                    <p class="mt-1 text-xs text-gray-500">Max 100 caratteri</p>
-                                </div>
-                                
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Cognome <span class="text-red-500">*</span>
-                                    </label>
-                                    <input type="text" 
-                                        id="editLastName" 
-                                        name="last_name" 
-                                        required
-                                        maxlength="100"
-                                        value="${this.escapeHtml(g.last_name || '')}"
-                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
-                                    <p class="mt-1 text-xs text-gray-500">Max 100 caratteri</p>
-                                </div>
+                            <!-- Nome -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Nome <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" id="editFirstName" required
+                                    value="${this.escapeHtml(g.first_name)}"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
                             
-                            <!-- Company -->
+                            <!-- Cognome -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Cognome <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" id="editLastName" required
+                                    value="${this.escapeHtml(g.last_name)}"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                            </div>
+                            
+                            <!-- Azienda -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Azienda
                                 </label>
-                                <input type="text" 
-                                    id="editCompanyName" 
-                                    name="company_name"
-                                    maxlength="200"
+                                <input type="text" id="editCompanyName"
                                     value="${this.escapeHtml(g.company_name || '')}"
-                                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
                             
-                            <!-- Email e Telefono -->
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Email
-                                    </label>
-                                    <input type="email" 
-                                        id="editContactEmail" 
-                                        name="contact_email"
-                                        maxlength="255"
-                                        value="${this.escapeHtml(g.contact_email || '')}"
-                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
-                                </div>
-                                
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Telefono
-                                    </label>
-                                    <input type="tel" 
-                                        id="editContactPhone" 
-                                        name="contact_phone"
-                                        maxlength="20"
-                                        value="${this.escapeHtml(g.contact_phone || '')}"
-                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
-                                </div>
+                            <!-- Email -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Email
+                                </label>
+                                <input type="email" id="editContactEmail"
+                                    value="${this.escapeHtml(g.contact_email || '')}"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                            </div>
+                            
+                            <!-- Telefono -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Telefono
+                                </label>
+                                <input type="tel" id="editContactPhone"
+                                    value="${this.escapeHtml(g.contact_phone || '')}"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
                             
                             <!-- Tavolo e Posto -->
@@ -752,35 +684,27 @@ class HostessGuestDetail {
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
                                         Numero Tavolo
                                     </label>
-                                    <input type="text" 
-                                        id="editTableNumber" 
-                                        name="table_number"
-                                        maxlength="50"
+                                    <input type="text" id="editTableNumber"
                                         value="${this.escapeHtml(g.table_number || '')}"
-                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                                 </div>
-                                
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
                                         Numero Posto
                                     </label>
-                                    <input type="text" 
-                                        id="editSeatNumber" 
-                                        name="seat_number"
-                                        maxlength="50"
+                                    <input type="text" id="editSeatNumber"
                                         value="${this.escapeHtml(g.seat_number || '')}"
-                                        class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                                 </div>
                             </div>
                             
                             <!-- VIP Level -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Livello VIP
+                                    Livello VIP <span class="text-red-500">*</span>
                                 </label>
-                                <select id="editVipLevel" 
-                                    name="vip_level"
-                                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                                <select id="editVipLevel" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                                     <option value="standard" ${g.vip_level === 'standard' ? 'selected' : ''}>Standard</option>
                                     <option value="premium" ${g.vip_level === 'premium' ? 'selected' : ''}>Premium</option>
                                     <option value="vip" ${g.vip_level === 'vip' ? 'selected' : ''}>VIP</option>
@@ -788,30 +712,22 @@ class HostessGuestDetail {
                                 </select>
                             </div>
                             
-                            <!-- Notes -->
+                            <!-- Note -->
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Note
+                                    Note <span class="text-xs text-gray-500" id="notesCounter">0 / 2000</span>
                                 </label>
-                                <textarea id="editNotes" 
-                                    name="notes" 
-                                    rows="4"
-                                    maxlength="2000"
-                                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition resize-none"
-                                    placeholder="Note aggiuntive sull'ospite...">${this.escapeHtml(g.notes || '')}</textarea>
-                                <div class="flex items-center justify-between mt-1">
-                                    <p class="text-xs text-gray-500">Max 2000 caratteri</p>
-                                    <p class="text-xs text-gray-500" id="notesCounter">0 / 2000</p>
-                                </div>
+                                <textarea id="editNotes" rows="4" maxlength="2000"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">${this.escapeHtml(g.notes || '')}</textarea>
                             </div>
                             
-                        </form>
-                    </div>
+                        </div>
+                    </form>
                     
-                    <!-- Footer Buttons -->
-                    <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end space-x-3 bg-gray-50">
-                        <button onclick="HostessGuestDetailInstance.closeEditModal()" 
-                            class="px-5 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-100 transition">
+                    <!-- Footer -->
+                    <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end space-x-3">
+                        <button onclick="document.getElementById('editGuestModal').classList.add('hidden')" 
+                            class="px-5 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium">
                             Annulla
                         </button>
                         <button onclick="HostessGuestDetailInstance.saveGuestEdit()" 
@@ -843,27 +759,20 @@ class HostessGuestDetail {
                 }
             };
             
-            notesTextarea.addEventListener('input', updateCounter);
-            updateCounter();
+            if (notesTextarea && notesCounter) {
+                notesTextarea.addEventListener('input', updateCounter);
+                updateCounter();
+            }
             
             // Focus first input
             setTimeout(() => {
-                document.getElementById('editFirstName').focus();
+                const firstNameInput = document.getElementById('editFirstName');
+                if (firstNameInput) firstNameInput.focus();
             }, 100);
             
         } catch (error) {
             console.error('[GUEST-DETAIL] Failed to show edit modal:', error);
             alert('Errore nell\'apertura del modulo di modifica');
-        }
-    }
-
-    /**
-     * Close edit modal
-     */
-    closeEditModal() {
-        const modal = document.getElementById('editGuestModal');
-        if (modal) {
-            modal.classList.add('hidden');
         }
     }
 
@@ -875,13 +784,6 @@ class HostessGuestDetail {
             console.log('[GUEST-DETAIL] Saving guest edits...');
             
             // Get form data
-            const form = document.getElementById('editGuestForm');
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
-            
-            // Collect data
             const data = {
                 first_name: document.getElementById('editFirstName').value.trim(),
                 last_name: document.getElementById('editLastName').value.trim(),
@@ -907,13 +809,16 @@ class HostessGuestDetail {
             }
             
             // Confirm action
-            if (!confirm('Confermi le modifiche?\n\nVerrà inviata una notifica all\'amministratore con il riepilogo delle modifiche effettuate.')) {
+            if (!confirm('Confermi le modifiche?\n\nVerrà inviata una notifica all\'amministratore.')) {
                 return;
             }
             
-            // Show loading
+            // Close modal
+            const modal = document.getElementById('editGuestModal');
+            if (modal) modal.classList.add('hidden');
+            
+            // Show processing
             this.showProcessing();
-            this.closeEditModal();
             
             // Call API
             const response = await API.guests.update(this.guestId, data);
@@ -925,38 +830,29 @@ class HostessGuestDetail {
                 // Show success
                 this.showSuccess(
                     'Modifiche salvate!',
-                    `I dati di ${data.first_name} ${data.last_name} sono stati aggiornati.${response.data.notification_queued ? '\n\nL\'amministratore è stato notificato.' : ''}`
+                    `I dati di ${data.first_name} ${data.last_name} sono stati aggiornati.`
                 );
                 
-                // Reload guest details after 2 seconds
-                setTimeout(async () => {
+                // Re-render detail after 2 seconds
+                setTimeout(() => {
                     this.hideSuccess();
-                    await this.loadGuestDetail();
+                    this.renderGuestDetail();
                     this.hideProcessing();
                 }, 2000);
                 
-                console.log('[GUEST-DETAIL] Guest updated successfully');
-                
             } else {
-                throw new Error(response.message || 'Errore durante il salvataggio');
+                throw new Error(response.message || 'Errore nel salvataggio');
             }
             
         } catch (error) {
-            console.error('[GUEST-DETAIL] Failed to save guest edits:', error);
+            console.error('[GUEST-DETAIL] Save edit error:', error);
             this.hideProcessing();
-            
-            let errorMessage = 'Errore durante il salvataggio delle modifiche';
-            
-            if (error.message) {
-                errorMessage += ':\n' + error.message;
-            }
-            
-            alert(errorMessage);
+            alert('Errore nel salvataggio: ' + error.message);
         }
     }
 
     /**
-     * Escape HTML to prevent XSS
+     * Escape HTML helper
      */
     escapeHtml(text) {
         if (!text) return '';
@@ -965,11 +861,11 @@ class HostessGuestDetail {
         return div.innerHTML;
     }
 
-
 }
 
 // Initialize when DOM is ready
-let HostessGuestDetailInstance;
+let HostessGuestDetailInstance;  // ✅ Variabile globale
 document.addEventListener('DOMContentLoaded', () => {
-    HostessGuestDetailInstance = new HostessGuestDetail();
+    console.log('[GUEST-DETAIL] DOM loaded, creating instance...');
+    HostessGuestDetailInstance = new HostessGuestDetail();  // ✅ Salva l'istanza
 });

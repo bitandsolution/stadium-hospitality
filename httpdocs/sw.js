@@ -2,9 +2,9 @@
  * Service Worker Minimal - Hospitality Manager
  * Cache essenziale per performance PWA
  */
-const CACHE_NAME = 'hospitality-v1.0.0';
-const STATIC_CACHE = 'hospitality-static-v1.0.0';
-const API_CACHE = 'hospitality-api-v1.0.0';
+const CACHE_NAME = 'hospitality-v1.5.0';
+const STATIC_CACHE = 'hospitality-static-v1.5.0';
+const API_CACHE = 'hospitality-api-v1.5.0';
 
 // Files critici da cachare
 const STATIC_ASSETS = [

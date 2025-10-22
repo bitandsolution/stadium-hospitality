@@ -2,12 +2,78 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hospitality Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Sistema di gestione check-in ospiti per stadi - bitAND solution">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#2563eb">
+    <meta name="background-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Hospitality Manager">
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="/assets/icons/icon-192x192.png">
+
+    <!-- iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Hospitality">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+
+    <!-- Android Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#7c3aed">
+
+    <!-- Windows Meta Tags -->
+    <meta name="msapplication-TileColor" content="#7c3aed">
+    <meta name="msapplication-TileImage" content="/icons/icon-144x144.png">
+    
+    <!-- Preconnect for better performance -->
+    <link rel="preconnect" href="https://checkindigitale.cloud">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    
+    <title>Hospitality Manager - Check-in System</title>
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>
 </head>
 <body>
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('✅ SW registered:', reg))
+                    .catch(err => console.error('❌ SW registration failed:', err));
+            });
+        }
+
+        // Install Prompt
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Mostra pulsante "Installa App"
+            const installBtn = document.getElementById('installBtn');
+            if (installBtn) {
+                installBtn.style.display = 'block';
+                installBtn.addEventListener('click', async () => {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    console.log('Install outcome:', outcome);
+                    deferredPrompt = null;
+                    installBtn.style.display = 'none';
+                });
+            }
+        });
+    </script>
+    
     <div style="display: flex; justify-content: center; align-items: center; height: 100vh;">
         <div style="text-align: center;">
             <div style="font-size: 48px; margin-bottom: 20px;">⏳</div>
@@ -16,25 +82,56 @@
     </div>
     
     <script>
+        console.log('[INDEX] Starting router...');
+        
         (async () => {
             // Check authentication
             if (!Auth.isAuthenticated()) {
+                console.log('[INDEX] Not authenticated, redirecting to login');
                 window.location.href = 'login.html';
                 return;
             }
             
             try {
-                const user = await Auth.getCurrentUser();
+                console.log('[INDEX] Getting user data...');
+                const userData = await Auth.getCurrentUser();
+                
+                console.log('[INDEX] User data received:', userData);
+                
+                // ✅ FIX CRITICO: Estrai il ruolo correttamente
+                // Auth.getCurrentUser() ritorna {user: {...}, permissions: [...]}
+                const userRole = userData.user?.role || userData.role;
+                
+                console.log('[INDEX] Extracted user role:', userRole);
+                
+                if (!userRole) {
+                    console.error('[INDEX] ❌ Could not extract user role');
+                    throw new Error('User role not found');
+                }
                 
                 // Route based on role
-                if (user.role === 'hostess') {
+                if (userRole === 'hostess') {
+                    console.log('[INDEX] ✅ Routing to HOSTESS dashboard');
                     window.location.href = 'hostess-dashboard.html';
+                } else if (userRole === 'stadium_admin') {
+                    console.log('[INDEX] ✅ Routing to ADMIN dashboard');
+                    window.location.href = 'dashboard.html';
+                } else if (userRole === 'super_admin') {
+                    console.log('[INDEX] ✅ Routing to SUPER ADMIN dashboard');
+                    window.location.href = 'dashboard.html';
                 } else {
+                    console.warn('[INDEX] ⚠️ Unknown role:', userRole, '- defaulting to dashboard');
                     window.location.href = 'dashboard.html';
                 }
                 
             } catch (error) {
-                console.error('Routing error:', error);
+                console.error('[INDEX] ❌ Routing error:', error);
+                
+                // Clear invalid session
+                localStorage.clear();
+                
+                // Redirect to login
+                console.log('[INDEX] Redirecting to login due to error');
                 window.location.href = 'login.html';
             }
         })();

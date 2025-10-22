@@ -1,23 +1,16 @@
 <?php
 /*********************************************************
 *                                                        *
-*   FILE: src/Services/GuestImportServices.php           *
-*                                                        *
-*   Author: Antonio Tartaglia - bitAND solution          *
-*   website: https://www.bitandsolution.it               *
-*   email:   info@bitandsolution.it                      *
-*                                                        *
-*   Owner: bitAND solution                               *
+*   FILE: src/Services/GuestImportService.php            *
+*   MODIFIED: Report dettagliato errori import           *
 *                                                        *
 *********************************************************/
 
 namespace Hospitality\Services;
 
-use Hospitality\Repositories\GuestRepository;
 use Hospitality\Config\Database;
 use Hospitality\Utils\Logger;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use Exception;
 use PDO;
 
@@ -29,10 +22,6 @@ class GuestImportService {
         $this->db = Database::getInstance()->getConnection();
     }
 
-    /**
-     * Import guests from Excel file
-     * Expected columns: COGNOME, NOME, RAGIONE SOCIALE, TELEFONO, EMAIL, SALA, POSTO
-     */
     public function importFromExcel(
         string $filePath, 
         int $eventId, 
@@ -42,12 +31,17 @@ class GuestImportService {
         $startTime = microtime(true);
 
         try {
-            // Validate file exists
             if (!file_exists($filePath)) {
                 throw new Exception('File not found');
             }
 
-            // Load Excel file
+            Logger::info('Starting Excel import', [
+                'file' => $filePath,
+                'event_id' => $eventId,
+                'stadium_id' => $stadiumId,
+                'dry_run' => $dryRun
+            ]);
+
             $spreadsheet = IOFactory::load($filePath);
             $worksheet = $spreadsheet->getActiveSheet();
             $rows = $worksheet->toArray();
@@ -56,58 +50,83 @@ class GuestImportService {
                 throw new Exception('Excel file is empty');
             }
 
-            // Load room mappings for this stadium
-            $this->loadRoomCache($stadiumId);
+            Logger::info('Excel file loaded', ['total_rows' => count($rows)]);
 
-            // Parse and validate
+            $this->loadRoomCache($stadiumId);
+            Logger::info('Room cache loaded', [
+                'rooms_count' => count($this->roomCache),
+                'rooms' => array_keys($this->roomCache)
+            ]);
+
             $results = $this->parseAndValidateRows($rows, $eventId, $stadiumId);
 
-            // If dry run, return validation results without inserting
+            Logger::info('Parsing completed', [
+                'valid' => count($results['valid']),
+                'invalid' => count($results['invalid']),
+                'empty_rows' => $results['empty_rows']
+            ]);
+
             if ($dryRun) {
                 return [
                     'success' => true,
                     'dry_run' => true,
                     'valid_rows' => count($results['valid']),
                     'invalid_rows' => count($results['invalid']),
+                    'empty_rows' => $results['empty_rows'],
                     'errors' => $results['invalid'],
                     'execution_time_ms' => round((microtime(true) - $startTime) * 1000, 2)
                 ];
             }
 
-            // Insert valid rows
             $insertResults = $this->insertGuests($results['valid'], $eventId, $stadiumId);
-
             $executionTime = round((microtime(true) - $startTime) * 1000, 2);
 
-            // Log import operation
-            LogService::log(
-                'GUEST_IMPORT',
-                'Guests imported from Excel',
-                [
-                    'event_id' => $eventId,
-                    'total_rows' => count($rows) - 1,
-                    'imported' => $insertResults['inserted'],
-                    'skipped' => $insertResults['skipped'],
-                    'errors' => count($results['invalid']),
-                    'execution_time_ms' => $executionTime
-                ],
-                $GLOBALS['current_user']['id'] ?? null,
-                $stadiumId
-            );
+            Logger::info('Import completed', [
+                'inserted' => $insertResults['inserted'],
+                'skipped' => $insertResults['skipped']
+            ]);
+
+            if (class_exists('\Hospitality\Services\LogService')) {
+                \Hospitality\Services\LogService::log(
+                    'GUEST_IMPORT',
+                    'Guests imported from Excel',
+                    [
+                        'event_id' => $eventId,
+                        'total_rows' => count($rows) - 1,
+                        'imported' => $insertResults['inserted'],
+                        'skipped' => $insertResults['skipped'],
+                        'errors' => count($results['invalid']),
+                        'empty_rows' => $results['empty_rows'],
+                        'execution_time_ms' => $executionTime
+                    ],
+                    $GLOBALS['current_user']['id'] ?? null,
+                    $stadiumId
+                );
+            }
 
             return [
                 'success' => true,
                 'imported' => $insertResults['inserted'],
                 'skipped' => $insertResults['skipped'],
                 'errors' => $results['invalid'],
+                'empty_rows' => $results['empty_rows'],
                 'total_processed' => count($rows) - 1,
-                'execution_time_ms' => $executionTime
+                'execution_time_ms' => $executionTime,
+                'summary' => [
+                    'total_rows_in_file' => count($rows) - 1,
+                    'valid_rows' => count($results['valid']),
+                    'invalid_rows' => count($results['invalid']),
+                    'empty_rows' => $results['empty_rows'],
+                    'successfully_imported' => $insertResults['inserted'],
+                    'skipped_duplicates' => $insertResults['skipped']
+                ]
             ];
 
         } catch (Exception $e) {
             Logger::error('Excel import failed', [
                 'error' => $e->getMessage(),
-                'file' => $filePath
+                'file' => $filePath,
+                'trace' => $e->getTraceAsString()
             ]);
             throw $e;
         }
@@ -116,41 +135,41 @@ class GuestImportService {
     private function parseAndValidateRows(array $rows, int $eventId, int $stadiumId): array {
         $valid = [];
         $invalid = [];
+        $emptyRowsCount = 0;
 
-        // First row should be headers
         $headers = array_map('strtoupper', array_map('trim', $rows[0]));
+        Logger::info('Excel headers found', ['headers' => implode(', ', $headers)]);
         
-        // Map headers to indices
         $colMap = [
             'last_name' => $this->findColumnIndex($headers, ['COGNOME']),
             'first_name' => $this->findColumnIndex($headers, ['NOME']),
-            'company' => $this->findColumnIndex($headers, ['RAGIONE SOCIALE', 'AZIENDA']),
-            'phone' => $this->findColumnIndex($headers, ['TELEFONO', 'TEL']),
-            'email' => $this->findColumnIndex($headers, ['EMAIL', 'E-MAIL']),
+            'company' => $this->findColumnIndex($headers, ['RAGIONE SOCIALE', 'AZIENDA', 'COMPANY']),
+            'phone' => $this->findColumnIndex($headers, ['TELEFONO', 'TEL', 'PHONE']),
+            'email' => $this->findColumnIndex($headers, ['EMAIL', 'E-MAIL', 'MAIL']),
             'room' => $this->findColumnIndex($headers, ['SALA', 'ROOM']),
-            'table' => $this->findColumnIndex($headers, ['POSTO', 'TAVOLO', 'TABLE'])
+            'table' => $this->findColumnIndex($headers, ['TAVOLO', 'POSTO', 'TABLE', 'SEAT'])
         ];
 
-        // Validate required columns exist
-        if ($colMap['last_name'] === false || $colMap['first_name'] === false || 
-            $colMap['room'] === false || $colMap['table'] === false) {
-            throw new Exception('Required columns missing (COGNOME, NOME, SALA, POSTO)');
+        Logger::info('Column mapping', ['mapping' => json_encode($colMap)]);
+
+        // Solo COGNOME e SALA sono obbligatori - NOME è opzionale
+        if ($colMap['last_name'] === false || $colMap['room'] === false) {
+            throw new Exception('Required columns missing: COGNOME and SALA must be present');
         }
 
-        // Process data rows (skip header)
         for ($i = 1; $i < count($rows); $i++) {
             $row = $rows[$i];
             $rowNum = $i + 1;
 
-            // Skip empty rows
             if ($this->isEmptyRow($row)) {
+                $emptyRowsCount++;
+                Logger::debug("Row {$rowNum} is empty, skipping");
                 continue;
             }
 
             $errors = [];
             $guestData = [];
 
-            // Extract and validate COGNOME (required)
             $lastName = trim($row[$colMap['last_name']] ?? '');
             if (empty($lastName)) {
                 $errors[] = "COGNOME missing";
@@ -158,65 +177,69 @@ class GuestImportService {
                 $guestData['last_name'] = $lastName;
             }
 
-            // Extract and validate NOME (required)
+            // NOME è opzionale - se vuoto usiamo "-"
             $firstName = trim($row[$colMap['first_name']] ?? '');
-            if (empty($firstName)) {
-                $errors[] = "NOME missing";
-            } else {
-                $guestData['first_name'] = $firstName;
-            }
+            $guestData['first_name'] = !empty($firstName) ? $firstName : '-';
 
-            // Extract SALA (required) and map to room_id
             $roomName = trim($row[$colMap['room']] ?? '');
             if (empty($roomName)) {
                 $errors[] = "SALA missing";
             } else {
                 $roomId = $this->getRoomIdByName($roomName, $stadiumId);
                 if (!$roomId) {
-                    $errors[] = "SALA '{$roomName}' not found";
+                    $errors[] = "SALA '{$roomName}' not found in database. Available rooms: " . implode(', ', array_keys($this->roomCache));
                 } else {
                     $guestData['room_id'] = $roomId;
                 }
             }
 
-            // Extract POSTO (required)
-            $tableNumber = trim($row[$colMap['table']] ?? '');
-            if (empty($tableNumber)) {
-                $errors[] = "POSTO missing";
+            if ($colMap['table'] !== false) {
+                $tableNumber = trim($row[$colMap['table']] ?? '');
+                $guestData['table_number'] = !empty($tableNumber) ? $tableNumber : null;
             } else {
-                $guestData['table_number'] = $tableNumber;
+                $guestData['table_number'] = null;
             }
 
-            // Optional fields
             if ($colMap['company'] !== false) {
-                $guestData['company_name'] = trim($row[$colMap['company']] ?? '');
+                $company = trim($row[$colMap['company']] ?? '');
+                $guestData['company_name'] = !empty($company) ? $company : null;
             }
 
             if ($colMap['phone'] !== false) {
-                $guestData['contact_phone'] = trim($row[$colMap['phone']] ?? '');
+                $phone = trim($row[$colMap['phone']] ?? '');
+                $guestData['contact_phone'] = !empty($phone) ? $phone : null;
             }
 
             if ($colMap['email'] !== false) {
                 $email = trim($row[$colMap['email']] ?? '');
                 if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                    $errors[] = "Invalid email format";
+                    $errors[] = "Invalid email format: {$email}";
                 } else {
-                    $guestData['contact_email'] = $email;
+                    $guestData['contact_email'] = !empty($email) ? $email : null;
                 }
             }
 
             if (empty($errors)) {
                 $valid[] = $guestData;
+                Logger::debug("Row {$rowNum} valid", ['data' => $guestData]);
             } else {
                 $invalid[] = [
                     'row' => $rowNum,
-                    'data' => $row,
+                    'data' => array_slice($row, 0, 8),
                     'errors' => $errors
                 ];
+                Logger::warning("Row {$rowNum} invalid", [
+                    'errors' => $errors, 
+                    'data' => array_slice($row, 0, 8)
+                ]);
             }
         }
 
-        return ['valid' => $valid, 'invalid' => $invalid];
+        return [
+            'valid' => $valid, 
+            'invalid' => $invalid,
+            'empty_rows' => $emptyRowsCount
+        ];
     }
 
     private function insertGuests(array $validGuests, int $eventId, int $stadiumId): array {
@@ -236,18 +259,28 @@ class GuestImportService {
 
             foreach ($validGuests as $guest) {
                 try {
-                    $stmt->execute([
+                    $result = $stmt->execute([
                         $stadiumId,
                         $eventId,
                         $guest['room_id'],
                         $guest['first_name'],
                         $guest['last_name'],
                         $guest['company_name'] ?? null,
-                        $guest['table_number'],
+                        $guest['table_number'] ?? null,
                         $guest['contact_phone'] ?? null,
                         $guest['contact_email'] ?? null
                     ]);
-                    $inserted++;
+                    
+                    if ($result) {
+                        $inserted++;
+                        Logger::debug('Guest inserted', [
+                            'name' => $guest['first_name'] . ' ' . $guest['last_name'],
+                            'room_id' => $guest['room_id']
+                        ]);
+                    } else {
+                        $skipped++;
+                        Logger::warning('Guest insert returned false', ['guest' => $guest]);
+                    }
                 } catch (Exception $e) {
                     $skipped++;
                     Logger::warning('Guest insert skipped', [
@@ -259,10 +292,17 @@ class GuestImportService {
 
             $this->db->commit();
 
+            Logger::info('Guest insertion completed', [
+                'inserted' => $inserted,
+                'skipped' => $skipped,
+                'total' => count($validGuests)
+            ]);
+
             return ['inserted' => $inserted, 'skipped' => $skipped];
 
         } catch (Exception $e) {
             $this->db->rollBack();
+            Logger::error('Guest insertion failed, rollback', ['error' => $e->getMessage()]);
             throw $e;
         }
     }
@@ -277,14 +317,30 @@ class GuestImportService {
         
         $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rooms as $room) {
-            // Store both original and normalized versions
-            $this->roomCache[strtoupper(trim($room['name']))] = $room['id'];
+            $normalized = strtoupper(trim($room['name']));
+            $this->roomCache[$normalized] = $room['id'];
+            
+            Logger::debug('Room cached', [
+                'name' => $room['name'],
+                'normalized' => $normalized,
+                'id' => $room['id']
+            ]);
         }
     }
 
     private function getRoomIdByName(string $roomName, int $stadiumId): ?int {
         $normalized = strtoupper(trim($roomName));
-        return $this->roomCache[$normalized] ?? null;
+        $roomId = $this->roomCache[$normalized] ?? null;
+        
+        if (!$roomId) {
+            Logger::warning('Room not found in cache', [
+                'room_name' => $roomName,
+                'normalized' => $normalized,
+                'available_rooms' => array_keys($this->roomCache)
+            ]);
+        }
+        
+        return $roomId;
     }
 
     private function findColumnIndex(array $headers, array $possibleNames): int|false {

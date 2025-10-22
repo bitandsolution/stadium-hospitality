@@ -91,14 +91,26 @@ class GuestController {
                 $result = $this->guestRepository->searchGuests($filters);
             }
 
-            // Calculate stats based on current filters
-            $stats = $this->calculateStats($result['results']);
+            // Rimuovi limit e offset per ottenere TUTTI i record filtrati
+            $statsFilters = $filters;
+            unset($statsFilters['limit']);
+            unset($statsFilters['offset']);
+
+            // Esegui query per ottenere TUTTI i record filtrati
+            if ($decoded->role === 'hostess') {
+                $allFilteredResult = $this->guestRepository->getGuestsForHostess($decoded->user_id, $statsFilters);
+            } else {
+                $allFilteredResult = $this->guestRepository->searchGuests($statsFilters);
+            }
+
+            // Calcola statistiche su TUTTI i record filtrati
+            $stats = $this->calculateStats($allFilteredResult['results']);
+
+            // Aggiungi total_count alle stats per il frontend
+            $stats['total_count'] = count($allFilteredResult['results']);
 
             // Get total count for pagination (only if needed)
-            $totalCount = null;
-            if ($offset === 0 && count($result['results']) === $limit) {
-                $totalCount = $this->guestRepository->countGuests($filters);
-            }
+            $totalCount = $stats['total_count'];
 
             // Log the search
             LogService::log(

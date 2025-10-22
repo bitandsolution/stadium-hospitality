@@ -52,22 +52,33 @@ class GuestRepository {
                 e.name as event_name,
                 e.event_date,
                 CASE 
-                    WHEN ga.id IS NOT NULL THEN 'checked_in'
+                    WHEN (
+                        SELECT access_type 
+                        FROM guest_accesses 
+                        WHERE guest_id = g.id 
+                        ORDER BY access_time DESC, id DESC 
+                        LIMIT 1
+                    ) = 'entry' THEN 'checked_in'
                     ELSE 'not_checked_in'
                 END as access_status,
-                ga.access_time as last_access_time,
-                u.full_name as checked_in_by
+                (
+                    SELECT access_time 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id AND access_type = 'entry'
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) as last_access_time,
+                (
+                    SELECT u.full_name 
+                    FROM guest_accesses ga
+                    JOIN users u ON ga.hostess_id = u.id
+                    WHERE ga.guest_id = g.id AND ga.access_type = 'entry'
+                    ORDER BY ga.access_time DESC, ga.id DESC 
+                    LIMIT 1
+                ) as checked_in_by
             FROM guests g
             JOIN hospitality_rooms hr ON g.room_id = hr.id
             JOIN events e ON g.event_id = e.id
-            LEFT JOIN guest_accesses ga ON g.id = ga.guest_id 
-                AND ga.access_type = 'entry'
-                AND ga.id = (
-                    SELECT MAX(ga2.id) 
-                    FROM guest_accesses ga2 
-                    WHERE ga2.guest_id = g.id AND ga2.access_type = 'entry'
-                )
-            LEFT JOIN users u ON ga.hostess_id = u.id
             WHERE g.is_active = 1
         ";
 
@@ -127,9 +138,27 @@ class GuestRepository {
         // Filtro per stato accesso
         if (!empty($filters['access_status'])) {
             if ($filters['access_status'] === 'checked_in') {
-                $conditions[] = "ga.id IS NOT NULL";
+                $conditions[] = "(
+                    SELECT access_type 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id 
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) = 'entry'";
             } elseif ($filters['access_status'] === 'not_checked_in') {
-                $conditions[] = "ga.id IS NULL";
+                $conditions[] = "(
+                    SELECT access_type 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id 
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) IS NULL OR (
+                    SELECT access_type 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id 
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) = 'exit'";
             }
         }
 
@@ -217,31 +246,28 @@ class GuestRepository {
                 e.name as event_name,
                 e.event_date,
                 s.name as stadium_name,
-                -- Calcola stato reale
                 CASE 
-                    WHEN last_entry.id IS NOT NULL AND (last_exit.id IS NULL OR last_exit.access_time < last_entry.access_time)
-                    THEN 'checked_in'
+                    WHEN (
+                        SELECT access_type 
+                        FROM guest_accesses 
+                        WHERE guest_id = g.id 
+                        ORDER BY access_time DESC, id DESC 
+                        LIMIT 1
+                    ) = 'entry' THEN 'checked_in'
                     ELSE 'not_checked_in'
                 END as access_status,
-                last_entry.access_time as last_access_time
+                -- Prendi l'ora dell'ultimo entry
+                (
+                    SELECT access_time 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id AND access_type = 'entry'
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) as last_access_time
             FROM guests g
             JOIN hospitality_rooms hr ON g.room_id = hr.id
             JOIN events e ON g.event_id = e.id
             JOIN stadiums s ON g.stadium_id = s.id
-            -- Ultimo entry
-            LEFT JOIN (
-                SELECT guest_id, id, access_time
-                FROM guest_accesses
-                WHERE access_type = 'entry'
-                ORDER BY access_time DESC
-            ) last_entry ON g.id = last_entry.guest_id
-            -- Ultimo exit
-            LEFT JOIN (
-                SELECT guest_id, id, access_time
-                FROM guest_accesses
-                WHERE access_type = 'exit'
-                ORDER BY access_time DESC
-            ) last_exit ON g.id = last_exit.guest_id
             WHERE g.id = :guest_id AND g.is_active = 1
         ";
 
@@ -467,6 +493,46 @@ class GuestRepository {
     }
 
     /**
+     * Create new guest
+     */
+    public function create(array $data): int {
+        $stmt = $this->db->prepare("
+            INSERT INTO guests (
+                stadium_id, event_id, room_id,
+                first_name, last_name, company_name,
+                contact_email, contact_phone,
+                table_number, seat_number,
+                vip_level, notes,
+                is_active, created_at
+            ) VALUES (
+                :stadium_id, :event_id, :room_id,
+                :first_name, :last_name, :company_name,
+                :contact_email, :contact_phone,
+                :table_number, :seat_number,
+                :vip_level, :notes,
+                1, NOW()
+            )
+        ");
+
+        $stmt->execute([
+            'stadium_id' => $data['stadium_id'],
+            'event_id' => $data['event_id'],
+            'room_id' => $data['room_id'],
+            'first_name' => $data['first_name'],
+            'last_name' => $data['last_name'],
+            'company_name' => $data['company_name'] ?? null,
+            'contact_email' => $data['contact_email'] ?? null,
+            'contact_phone' => $data['contact_phone'] ?? null,
+            'table_number' => $data['table_number'] ?? null,
+            'seat_number' => $data['seat_number'] ?? null,
+            'vip_level' => $data['vip_level'] ?? 'standard',
+            'notes' => $data['notes'] ?? null
+        ]);
+
+        return (int) $this->db->lastInsertId();
+    }
+
+    /**
      * Update guest data (full update for admin or limited for hostess)
      */
     public function update(int $guestId, array $data, ?int $stadiumId = null): bool {
@@ -490,7 +556,7 @@ class GuestRepository {
             }
 
             if (empty($fields)) {
-                return false; // Nothing to update
+                return false;
             }
 
             // Add updated_at timestamp
@@ -513,6 +579,19 @@ class GuestRepository {
             error_log("Guest update failed: " . $e->getMessage());
             throw new \Exception("Failed to update guest: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Soft delete guest
+     */
+    public function delete(int $guestId): bool {
+        $stmt = $this->db->prepare("
+            UPDATE guests 
+            SET is_active = 0, updated_at = NOW()
+            WHERE id = ?
+        ");
+        
+        return $stmt->execute([$guestId]);
     }
 
     /**

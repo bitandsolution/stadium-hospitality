@@ -1,6 +1,7 @@
 /**
  * Hostess Dashboard - Main Logic
  * Interfaccia semplificata per check-in veloce ospiti
+ * FIXED: Corretta gestione ruolo hostess e redirect
  */
 
 class HostessDashboard {
@@ -38,24 +39,47 @@ class HostessDashboard {
             
             console.log('[HOSTESS] User data received:', userData);
             
-            // ✅ FIX: Estrai correttamente il ruolo - TUTTI i modi possibili
-            const userRole = userData.user?.role || userData.role;
-            const viewType = userData.role_specific_data?.view_type;
+            // ✅ FIX: Estrai CORRETTAMENTE il ruolo - supporta TUTTE le strutture
+            let userRole = null;
+            let viewType = null;
+            let permissions = [];
             
-            console.log('[HOSTESS] User role:', userRole);
-            console.log('[HOSTESS] View type:', viewType);
+            // Caso 1: userData.user.role (struttura normalizzata)
+            if (userData.user && userData.user.role) {
+                userRole = userData.user.role;
+            }
+            // Caso 2: userData.role (struttura flat)
+            else if (userData.role) {
+                userRole = userData.role;
+            }
             
-            // ✅ VERIFICA MULTIPLA - Accetta se UNO di questi è vero
+            // View type
+            if (userData.role_specific_data && userData.role_specific_data.view_type) {
+                viewType = userData.role_specific_data.view_type;
+            }
+            
+            // Permissions
+            if (userData.permissions && Array.isArray(userData.permissions)) {
+                permissions = userData.permissions;
+            }
+            
+            console.log('[HOSTESS] Extracted data:', {
+                userRole,
+                viewType,
+                permissions
+            });
+            
+            // ✅ VERIFICA MULTIPLA - Accetta se ALMENO UNO è vero
             const isHostess = (
                 userRole === 'hostess' ||
                 viewType === 'hostess_checkin' ||
-                (userData.permissions && userData.permissions.includes('checkin_guests'))
+                permissions.includes('checkin_guests')
             );
             
             console.log('[HOSTESS] Is hostess check:', {
-                userRole,
-                viewType,
-                hasCheckinPermission: userData.permissions?.includes('checkin_guests'),
+                roleCheck: userRole === 'hostess',
+                viewTypeCheck: viewType === 'hostess_checkin',
+                permissionCheck: permissions.includes('checkin_guests'),
                 finalResult: isHostess
             });
             
@@ -63,31 +87,35 @@ class HostessDashboard {
                 console.error('[HOSTESS] ❌ Access denied - User is not a hostess');
                 console.error('   User role:', userRole);
                 console.error('   View type:', viewType);
-                console.error('   Permissions:', userData.permissions);
+                console.error('   Permissions:', permissions);
                 
-                Utils.showToast('Accesso negato. Solo per hostess.', 'error');
+                // ✅ FIX: Non mostrare toast, redirect diretto
+                console.log('[HOSTESS] Redirecting to correct dashboard...');
                 
                 // Redirect alla dashboard corretta per il ruolo
-                setTimeout(() => {
-                    if (userRole === 'stadium_admin') {
-                        console.log('[HOSTESS] Redirecting to admin dashboard');
-                        window.location.href = 'admin-dashboard.html';
-                    } else if (userRole === 'super_admin') {
-                        console.log('[HOSTESS] Redirecting to super admin dashboard');
-                        window.location.href = 'super-admin-dashboard.html';
-                    } else {
-                        console.log('[HOSTESS] Redirecting to login');
-                        window.location.href = 'login.html';
-                    }
-                }, 2000);
+                if (userRole === 'stadium_admin') {
+                    window.location.href = 'dashboard.html';
+                } else if (userRole === 'super_admin') {
+                    window.location.href = 'dashboard.html';
+                } else {
+                    window.location.href = 'login.html';
+                }
                 return;
             }
             
             console.log('[HOSTESS] ✅ Access granted');
 
             // ✅ Salva i dati utente completi
-            this.user = userData.user || userData;
-            this.userData = userData; // Salva anche l'oggetto completo con assigned_rooms
+            this.user = userData.user || { 
+                id: userData.id,
+                username: userData.username,
+                full_name: userData.full_name,
+                role: userRole,
+                stadium_id: userData.stadium_id
+            };
+            
+            // Salva l'intero oggetto userData per assigned_rooms
+            this.userData = userData;
             
             console.log('[HOSTESS] Saved user data:', {
                 user: this.user,
@@ -118,16 +146,22 @@ class HostessDashboard {
         
         // Update user info in header
         const userName = this.user.full_name || this.user.username || 'Hostess';
-        document.getElementById('userName').textContent = userName;
+        const userNameEl = document.getElementById('userName');
+        if (userNameEl) {
+            userNameEl.textContent = userName;
+        }
         
         // ✅ FIX: Usa userData invece di user per assigned_rooms
-        if (this.userData.assigned_rooms && this.userData.assigned_rooms.length > 0) {
-            const roomNames = this.userData.assigned_rooms.map(r => r.room_name).join(', ');
-            document.getElementById('userRoom').textContent = roomNames;
-            console.log('[HOSTESS] Assigned rooms:', roomNames);
-        } else {
-            document.getElementById('userRoom').textContent = 'Nessuna sala assegnata';
-            console.warn('[HOSTESS] No assigned rooms found');
+        const userRoomEl = document.getElementById('userRoom');
+        if (userRoomEl) {
+            if (this.userData.assigned_rooms && this.userData.assigned_rooms.length > 0) {
+                const roomNames = this.userData.assigned_rooms.map(r => r.room_name).join(', ');
+                userRoomEl.textContent = roomNames;
+                console.log('[HOSTESS] Assigned rooms:', roomNames);
+            } else {
+                userRoomEl.textContent = 'Nessuna sala assegnata';
+                console.warn('[HOSTESS] No assigned rooms found');
+            }
         }
     }
 
@@ -214,7 +248,7 @@ class HostessDashboard {
 
             // Use guest search endpoint with hostess filters
             const response = await API.guests.search({
-                limit: 500, // Load all guests assigned to hostess
+                limit: 500,
                 access_status: this.currentFilter === 'all' ? null : this.currentFilter
             });
 

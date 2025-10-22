@@ -1,7 +1,7 @@
 <?php
 /*********************************************************
 *                                                        *
-*   FILE: src/Controller/GuestImportController.php       *
+*   FILE: src/Controllers/GuestImportController.php      *
 *                                                        *
 *   Author: Antonio Tartaglia - bitAND solution          *
 *   website: https://www.bitandsolution.it               *
@@ -27,7 +27,6 @@ class GuestImportController {
 
     public function __construct() {
         $this->importService = new GuestImportService();
-        // Path assoluto dentro la directory consentita
         $this->uploadDir = '/var/www/vhosts/checkindigitale.cloud/uploads/imports';
         
         if (!is_dir($this->uploadDir)) {
@@ -46,24 +45,36 @@ class GuestImportController {
 
             if (!RoleMiddleware::requireRole('stadium_admin')) return;
 
+            Logger::info('Import request received', [
+                'user_id' => $decoded->user_id,
+                'POST' => $_POST,
+                'FILES' => array_keys($_FILES)
+            ]);
+
             // Get POST parameters
             $eventId = $_POST['event_id'] ?? null;
             $stadiumId = $_POST['stadium_id'] ?? null;
             $dryRun = isset($_POST['dry_run']) && $_POST['dry_run'] === 'true';
 
             if (!$eventId || !is_numeric($eventId)) {
-                $this->sendError('event_id is required', [], 422);
+                $this->sendError('event_id is required and must be numeric', [], 422);
                 return;
             }
 
-            if (!$stadiumId || !is_numeric($eventId)) {
-                $this->sendError('stadium_id is required', [], 400);
+            if (!$stadiumId || !is_numeric($stadiumId)) {
+                $this->sendError('stadium_id is required and must be numeric', [], 422);
                 return;
             }
+
+            Logger::info('Import parameters', [
+                'event_id' => $eventId,
+                'stadium_id' => $stadiumId,
+                'dry_run' => $dryRun
+            ]);
 
             // Validate event exists and belongs to user's stadium
             $eventStmt = $this->importService->db->prepare("
-                SELECT stadium_id FROM events WHERE id = ? AND is_active = 1
+                SELECT stadium_id, name FROM events WHERE id = ? AND is_active = 1
             ");
             $eventStmt->execute([$eventId]);
             $event = $eventStmt->fetch(\PDO::FETCH_ASSOC);
@@ -72,6 +83,8 @@ class GuestImportController {
                 $this->sendError('Event not found', [], 404);
                 return;
             }
+
+            Logger::info('Event found', ['event' => $event]);
 
             if (!TenantMiddleware::validateStadiumAccess($event['stadium_id'])) return;
 
@@ -82,6 +95,13 @@ class GuestImportController {
             }
 
             $file = $_FILES['file'];
+
+            Logger::info('File received', [
+                'name' => $file['name'],
+                'type' => $file['type'],
+                'size' => $file['size'],
+                'error' => $file['error']
+            ]);
 
             // Check for upload errors
             if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -106,13 +126,18 @@ class GuestImportController {
 
             // Validate MIME type
             $allowedMimeTypes = [
-                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
-                'application/vnd.ms-excel' // xls
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-excel'
             ];
             
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
             $mimeType = finfo_file($finfo, $file['tmp_name']);
             finfo_close($finfo);
+
+            Logger::info('File validation', [
+                'extension' => $fileExtension,
+                'mime_type' => $mimeType
+            ]);
 
             if (!in_array($mimeType, $allowedMimeTypes)) {
                 $this->sendError('Invalid file type detected', [], 422);
@@ -129,95 +154,129 @@ class GuestImportController {
                 return;
             }
 
+            Logger::info('File saved', ['filepath' => $filepath]);
+
             try {
                 // Process import
                 $result = $this->importService->importFromExcel(
                     $filepath,
                     (int)$eventId,
-                    $event['stadium_id'],
+                    (int)$event['stadium_id'],
                     $dryRun
                 );
+
+                Logger::info('Import completed', ['result' => $result]);
 
                 // Delete temporary file if not dry run
                 if (!$dryRun && file_exists($filepath)) {
                     unlink($filepath);
+                    Logger::info('Temporary file deleted', ['filepath' => $filepath]);
                 }
 
-                $this->sendSuccess($result);
+                // Format response for frontend
+                $responseData = [
+                    'imported_count' => $result['imported'] ?? 0,
+                    'skipped_count' => $result['skipped'] ?? 0,
+                    'errors_count' => count($result['errors'] ?? []),
+                    'total_processed' => $result['total_processed'] ?? 0,
+                    'execution_time_ms' => $result['execution_time_ms'] ?? 0,
+                    'errors' => $result['errors'] ?? [],
+                    'summary' => [
+                        'successful' => $result['imported'] ?? 0,
+                        'failed' => $result['skipped'] ?? 0,
+                        'total' => $result['total_processed'] ?? 0
+                    ]
+                ];
+
+                $this->sendSuccess($responseData);
 
             } catch (Exception $e) {
-                // Clean up file on error
                 if (file_exists($filepath)) {
                     unlink($filepath);
                 }
+                
+                Logger::error('Import processing failed', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                ]);
+                
                 throw $e;
             }
 
         } catch (Exception $e) {
             Logger::error('Guest import failed', [
                 'error' => $e->getMessage(),
-                'user_id' => $decoded->user_id ?? null
+                'user_id' => $decoded->user_id ?? null,
+                'trace' => $e->getTraceAsString()
             ]);
 
-            $this->sendError('Import failed', $e->getMessage(), 400);
+            $this->sendError('Import failed: ' . $e->getMessage(), [
+                'details' => $e->getMessage(),
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine()
+            ], 400);
         }
     }
 
     /**
      * GET /api/admin/guests/import/template
-     * Download Excel template for import
      */
     public function downloadTemplate(): void {
         try {
-            
             $decoded = AuthMiddleware::handle();
             if (!$decoded) return;
 
-            // Create simple Excel template
+            Logger::info('Template download requested', ['user_id' => $decoded->user_id]);
+
             $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
 
-            // Set headers
-            // Headers - ordine ottimizzato per data entry
-            $headers = ['SALA', 'TAVOLO', 'COGNOME', 'NOME', 'POSTO', 'RAGIONE SOCIALE', 'TELEFONO', 'EMAIL'];
+            $headers = ['SALA', 'COGNOME', 'NOME', 'TAVOLO', 'RAGIONE SOCIALE', 'TELEFONO', 'EMAIL'];
             $sheet->fromArray([$headers], null, 'A1');
 
-            // Add sample data
             $sampleData = [
-                ['HOSPITALITY 1', '5', 'Rossi', 'Mario', '1', 'Acme Corp', '+39 333 1234567', 'mario.rossi@acme.it'],
-                ['HOSPITALITY 2', '12', 'Bianchi', 'Laura', '7', 'Tech Solutions', '+39 333 7654321', 'laura@tech.it',  ]
+                ['HOSPITALITY 1', 'Rossi', 'Mario', '5', 'Acme Corp', '+39 333 1234567', 'mario.rossi@acme.it'],
+                ['HOSPITALITY 2', 'Bianchi', 'Laura', '', 'Tech Solutions', '+39 333 7654321', 'laura@tech.it'],
+                ['HOSPITALITY 1', 'Verdi', 'Giuseppe', '12', '', '', '']
             ];
             $sheet->fromArray($sampleData, null, 'A2');
 
-            // Style headers
-            $headerStyle = $sheet->getStyle('A1:H1');
+            $headerStyle = $sheet->getStyle('A1:G1');
             $headerStyle->getFont()->setBold(true);
             $headerStyle->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID);
             $headerStyle->getFill()->getStartColor()->setRGB('4472C4');
             $headerStyle->getFont()->getColor()->setRGB('FFFFFF');
 
-            // Auto-size columns
-            foreach (range('A', 'H') as $col) {
+            $sheet->setCellValue('A5', 'NOTA: I campi SALA, COGNOME e NOME sono OBBLIGATORI. TAVOLO è opzionale.');
+            $sheet->getStyle('A5')->getFont()->setBold(true)->setItalic(true);
+            $sheet->getStyle('A5')->getFont()->getColor()->setRGB('FF0000');
+
+            foreach (range('A', 'G') as $col) {
                 $sheet->getColumnDimension($col)->setAutoSize(true);
             }
 
-            // Output file
             header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
             header('Content-Disposition: attachment; filename="hospitality_import_template.xlsx"');
             header('Cache-Control: max-age=0');
 
             $writer = \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($spreadsheet, 'Xlsx');
             $writer->save('php://output');
+            
+            Logger::info('Template downloaded successfully', ['user_id' => $decoded->user_id]);
             exit;
 
         } catch (Exception $e) {
-            Logger::error('Template download failed', ['error' => $e->getMessage()]);
+            Logger::error('Template download failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             
             header('Content-Type: application/json');
             http_response_code(500);
             echo json_encode([
                 'success' => false,
                 'message' => 'Failed to generate template',
+                'details' => $e->getMessage(),
                 'timestamp' => date('c')
             ]);
             exit;
@@ -234,7 +293,6 @@ class GuestImportController {
             UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
             UPLOAD_ERR_EXTENSION => 'File upload stopped by extension'
         ];
-
         return $errors[$errorCode] ?? 'Unknown upload error';
     }
 

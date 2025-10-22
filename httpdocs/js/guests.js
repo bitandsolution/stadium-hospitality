@@ -1,6 +1,7 @@
 /**
  * Guests Page Controller
  * Handles guest list, search, filters, and CRUD operations
+ * MODIFIED: Added total counts functionality
  */
 
 const Guests = {
@@ -8,6 +9,7 @@ const Guests = {
     currentPage: 1,
     pageSize: 50,
     totalGuests: 0,
+    totalGuestsInDatabase: 0, // NEW: Total count without filters
     guests: [],
     filters: {
         search: '',
@@ -32,8 +34,35 @@ const Guests = {
         await this.loadEvents();
         await this.loadRooms();
         
+        // NEW: Load total database stats first
+        await this.loadDatabaseStats();
+        
         // Load guests
         await this.loadGuests();
+    },
+    
+    /**
+     * NEW: Load total database statistics (without filters)
+     */
+    async loadDatabaseStats() {
+        try {
+            console.log('[GUESTS] Loading total database stats...');
+            
+            // Call API with minimal params to get total count
+            const params = {
+                limit: 1,
+                offset: 0
+            };
+            
+            const response = await API.guests.search(params);
+            
+            if (response.success && response.data) {
+                this.totalGuestsInDatabase = response.data.pagination?.total_count || 0;
+                console.log('[GUESTS] Total guests in database:', this.totalGuestsInDatabase);
+            }
+        } catch (error) {
+            console.error('[GUESTS] Failed to load database stats:', error);
+        }
     },
     
     /**
@@ -168,7 +197,7 @@ const Guests = {
      */
     async loadEvents() {
         try {
-            const user = await Auth.getCurrentUser();
+            const user = Auth.getUser();
             const response = await API.events.list(user.stadium_id);
             
             if (response.success && response.data.events) {
@@ -195,7 +224,7 @@ const Guests = {
     },
 
     /**
-     * Update stats header
+     * MODIFIED: Update stats header with intelligent total count
      */
     updateStats(stats) {
         if (!stats) {
@@ -203,21 +232,49 @@ const Guests = {
             return;
         }
         
+        // Check if filters are active
+        const hasFilters = this.filters.search || 
+                          this.filters.event_id || 
+                          this.filters.room_id || 
+                          this.filters.vip_level || 
+                          this.filters.access_status;
+        
         const statTotal = document.getElementById('statTotal');
         const statCheckedIn = document.getElementById('statCheckedIn');
         const statPending = document.getElementById('statPending');
         const statVip = document.getElementById('statVip');
         
-        if (statTotal) statTotal.textContent = stats.total || 0;
-        if (statCheckedIn) statCheckedIn.textContent = stats.checked_in || 0;
-        if (statPending) statPending.textContent = stats.pending || 0;
+        // Total: Show database total if no filters, otherwise filtered count
+        if (statTotal) {
+            const displayTotal = hasFilters ? (stats.total || 0) : this.totalGuestsInDatabase;
+            statTotal.textContent = displayTotal;
+        }
+        
+        // Checked In: Always from database stats, not current page
+        if (statCheckedIn) {
+            // Use total checked in from stats if available, otherwise calculate
+            statCheckedIn.textContent = stats.checked_in_total || stats.checked_in || 0;
+        }
+        
+        // Pending: Calculate from total - checked_in
+        if (statPending) {
+            const displayTotal = hasFilters ? (stats.total || 0) : this.totalGuestsInDatabase;
+            const checkedInTotal = stats.checked_in_total || stats.checked_in || 0;
+            const pendingTotal = displayTotal - checkedInTotal;
+            statPending.textContent = pendingTotal;
+        }
         
         if (statVip && stats.vip_counts) {
             const vipCount = (stats.vip_counts.vip || 0) + (stats.vip_counts.ultra_vip || 0);
             statVip.textContent = vipCount;
         }
         
-        console.log('[GUESTS] Stats updated:', stats);
+        console.log('[GUESTS] Stats updated:', {
+            total_display: hasFilters ? stats.total : this.totalGuestsInDatabase,
+            checked_in: stats.checked_in_total || stats.checked_in,
+            pending: (hasFilters ? stats.total : this.totalGuestsInDatabase) - (stats.checked_in_total || stats.checked_in || 0),
+            has_filters: hasFilters
+        });
     },
     
     /**
@@ -300,14 +357,18 @@ const Guests = {
             
             if (response.success && response.data.guests) {
                 this.guests = response.data.guests;
-                this.totalGuests = response.data.pagination?.total_count || response.data.guests.length;
                 
-                // Update stats - VERIFICA QUI
+                // FIX: Usa total_count dal backend per la paginazione corretta
+                this.totalGuests = response.data.pagination?.total_count || 
+                                response.data.pagination?.total_found || 
+                                response.data.guests.length;
+                
+                console.log('[GUESTS] Total guests for pagination:', this.totalGuests);
+                
+                // Update stats
                 if (response.data.stats) {
                     console.log('[GUESTS] Updating stats:', response.data.stats);
                     this.updateStats(response.data.stats);
-                } else {
-                    console.warn('[GUESTS] No stats in response');
                 }
                 
                 this.renderGuestsTable();
@@ -418,7 +479,7 @@ const Guests = {
         const prevBtn = document.getElementById('prevPageBtn');
         const nextBtn = document.getElementById('nextPageBtn');
         
-        if (pageStart) pageStart.textContent = start;
+        if (pageStart) pageStart.textContent = this.totalGuests > 0 ? start : 0;
         if (pageEnd) pageEnd.textContent = end;
         if (pageTotal) pageTotal.textContent = this.totalGuests;
         if (pageInfo) pageInfo.textContent = `Pagina ${this.currentPage} di ${totalPages || 1}`;
@@ -426,6 +487,13 @@ const Guests = {
         // Enable/disable buttons
         if (prevBtn) prevBtn.disabled = this.currentPage <= 1;
         if (nextBtn) nextBtn.disabled = this.currentPage >= totalPages;
+        
+        console.log('[GUESTS] Pagination updated:', {
+            currentPage: this.currentPage,
+            totalPages: totalPages,
+            totalGuests: this.totalGuests,
+            pageSize: this.pageSize
+        });
     },
     
     /**
@@ -803,7 +871,8 @@ const Guests = {
                 // Close modal
                 this.closeEditModal();
                 
-                // Reload guests
+                // Reload database stats and guests
+                await this.loadDatabaseStats();
                 await this.loadGuests();
             } else {
                 const errorMsg = response.message || 'Impossibile salvare l\'ospite';
@@ -857,14 +926,6 @@ const Guests = {
             console.error('[GUESTS] Failed to get guest details:', error);
             alert('Errore nel caricamento dei dettagli');
         }
-    },
-    
-    /**
-     * Show guest details (placeholder)
-     */
-    async showGuestDetails(guestId) {
-        console.log('[GUESTS] Show details for guest:', guestId);
-        alert('Dettagli ospite in fase di implementazione');
     },
     
     /**
@@ -924,4 +985,4 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = Guests;
 }
 
-console.log('[GUESTS] Guests module loaded');
+console.log('[GUESTS] Guests module loaded with total counts support');

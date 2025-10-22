@@ -303,7 +303,7 @@ const Utils = {
     /**
      * Handle API errors
      */
-    handleApiError(error, defaultMessage = 'Si è verificato un errore') {
+    handleApiError(error, defaultMessage = 'Si Ã¨ verificato un errore') {
         console.error('API Error:', error);
         
         let message = defaultMessage;

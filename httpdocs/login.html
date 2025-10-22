@@ -2,8 +2,43 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Hospitality Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Sistema di gestione check-in ospiti per stadi - bitAND solution">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#2563eb">
+    <meta name="background-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Hospitality Manager">
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="/assets/icons/icon-192x192.png">
+
+    <!-- iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Hospitality">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+
+    <!-- Android Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#7c3aed">
+
+    <!-- Windows Meta Tags -->
+    <meta name="msapplication-TileColor" content="#7c3aed">
+    <meta name="msapplication-TileImage" content="/icons/icon-144x144.png">
+    
+    <!-- Preconnect for better performance -->
+    <link rel="preconnect" href="https://checkindigitale.cloud">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    
+    <title>Hospitality Manager - Check-in System</title>
     
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -71,7 +106,36 @@
     </style>
 </head>
 <body class="gradient-bg min-h-screen flex items-center justify-center p-4">
-    
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('✅ SW registered:', reg))
+            .catch(err => console.error('❌ SW registration failed:', err));
+        });
+        }
+
+        // Install Prompt
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        
+        // Mostra pulsante "Installa App"
+        const installBtn = document.getElementById('installBtn');
+        if (installBtn) {
+            installBtn.style.display = 'block';
+            installBtn.addEventListener('click', async () => {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log('Install outcome:', outcome);
+            deferredPrompt = null;
+            installBtn.style.display = 'none';
+            });
+        }
+        });
+    </script>    
     <!-- Login Container -->
     <div class="w-full max-w-md">
         
@@ -163,6 +227,25 @@
                         Lascia vuoto se sei Super Admin
                     </p>
                 </div>
+
+                <!-- Stadium ID (optional, only for super_admin) -->
+                <div id="stadiumIdContainer" class="hidden">
+                    <label for="stadiumId" class="block text-sm font-medium text-gray-700 mb-2">
+                        Stadium ID (opzionale)
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="building" class="w-5 h-5 text-gray-400"></i>
+                        </div>
+                        <input 
+                            type="number" 
+                            id="stadiumId" 
+                            name="stadiumId"
+                            class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition"
+                            placeholder="ID stadio (solo super admin)"
+                        >
+                    </div>
+                </div>
                 
                 <!-- Remember Me -->
                 <div class="flex items-center justify-between">
@@ -221,100 +304,114 @@
     <script>
         // Initialize Lucide icons
         lucide.createIcons();
-        
-        // Toggle password visibility
-        document.getElementById('togglePassword').addEventListener('click', function() {
-            const passwordInput = document.getElementById('password');
-            const icon = this.querySelector('i');
+
+        // Check if already logged in
+        if (Auth.isAuthenticated()) {
+            console.log('[LOGIN] Already authenticated, redirecting...');
             
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                icon.setAttribute('data-lucide', 'eye-off');
-            } else {
-                passwordInput.type = 'password';
-                icon.setAttribute('data-lucide', 'eye');
-            }
-            
-            lucide.createIcons();
-        });
-        
-        // Show alert
-        function showAlert(message, type = 'error') {
+            // Get user and redirect based on role
+            Auth.getCurrentUser().then(userData => {
+                console.log('[LOGIN] Current user:', userData);
+                
+                // ✅ CRITICAL FIX: Estrai il ruolo correttamente
+                const userRole = userData.user?.role || userData.role;
+                
+                console.log('[LOGIN] User role:', userRole);
+                
+                if (userRole === 'hostess') {
+                    console.log('[LOGIN] Redirecting to hostess dashboard');
+                    window.location.href = 'hostess-dashboard.html';
+                } else {
+                    console.log('[LOGIN] Redirecting to admin dashboard');
+                    window.location.href = 'dashboard.html';
+                }
+            }).catch(error => {
+                console.error('[LOGIN] Error getting user:', error);
+                // Clear invalid session
+                sessionStorage.clear();
+                localStorage.clear();
+            });
+        }
+
+        // Alert helper
+        function showAlert(message) {
             const container = document.getElementById('alertContainer');
-            const colors = {
-                error: 'bg-red-50 text-red-800 border-red-200',
-                success: 'bg-green-50 text-green-800 border-green-200',
-                warning: 'bg-yellow-50 text-yellow-800 border-yellow-200'
-            };
+            const messageEl = document.getElementById('alertMessage');
             
-            const icons = {
-                error: 'alert-circle',
-                success: 'check-circle',
-                warning: 'alert-triangle'
-            };
-            
-            container.innerHTML = `
-                <div class="flex items-center p-4 border rounded-lg ${colors[type]} error-shake">
-                    <i data-lucide="${icons[type]}" class="w-5 h-5 mr-3"></i>
-                    <span class="text-sm font-medium">${message}</span>
-                </div>
-            `;
-            
+            messageEl.textContent = message;
             container.classList.remove('hidden');
-            lucide.createIcons();
             
             setTimeout(() => {
                 container.classList.add('hidden');
             }, 5000);
         }
-        
-       // Handle form submission
+
+        // Form submission
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            console.log('[LOGIN] Form submitted');
+            
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const stadiumId = document.getElementById('stadiumId').value;
+            
+            // Validate
+            if (!username || !password) {
+                showAlert('Inserisci username e password');
+                return;
+            }
+            
+            // Disable button and show loading
             const submitBtn = document.getElementById('submitBtn');
             const btnText = document.getElementById('btnText');
             const btnLoading = document.getElementById('btnLoading');
             
-            // Disable button and show loading
             submitBtn.disabled = true;
             btnText.textContent = 'Accesso in corso...';
             btnLoading.classList.remove('hidden');
             
-            // Get form data
-            const formData = {
-                username: document.getElementById('username').value.trim(),
-                password: document.getElementById('password').value
-            };
-            
-            const stadiumId = document.getElementById('stadium_id').value;
-            if (stadiumId) {
-                formData.stadium_id = parseInt(stadiumId);
-            }
-            
             try {
-                const result = await Auth.login(formData.username, formData.password, formData.stadium_id);
+                console.log('[LOGIN] Calling Auth.login...');
+                
+                const result = await Auth.login(
+                    username, 
+                    password, 
+                    stadiumId || null
+                );
+                
+                console.log('[LOGIN] Login result:', result);
                 
                 if (result.success) {
-                    showAlert('Accesso effettuato con successo! Reindirizzamento...', 'success');
+                    console.log('[LOGIN] ✅ Login successful');
                     
-                    // MODIFICA QUI: Route basato sul ruolo utente
-                    const userRole = result.user.role; // Ottieni il ruolo dalla risposta
+                    // ✅ CRITICAL FIX: Estrai il ruolo correttamente dalla risposta
+                    const userRole = result.user?.role || result.role;
                     
+                    console.log('[LOGIN] User role from login:', userRole);
+                    
+                    // Show success (optional)
+                    btnText.textContent = 'Accesso effettuato!';
+                    
+                    // ✅ FIX: Redirect IMMEDIATO basato sul ruolo
                     setTimeout(() => {
                         if (userRole === 'hostess') {
-                            console.log('Redirecting to hostess dashboard');
+                            console.log('[LOGIN] Redirecting to HOSTESS dashboard');
                             window.location.href = 'hostess-dashboard.html';
-                        } else if (userRole === 'stadium_admin' || userRole === 'super_admin') {
-                            console.log('Redirecting to admin dashboard');
+                        } else if (userRole === 'stadium_admin') {
+                            console.log('[LOGIN] Redirecting to ADMIN dashboard');
+                            window.location.href = 'dashboard.html';
+                        } else if (userRole === 'super_admin') {
+                            console.log('[LOGIN] Redirecting to SUPER ADMIN dashboard');
                             window.location.href = 'dashboard.html';
                         } else {
-                            // Fallback
-                            console.log('Unknown role, redirecting to default dashboard');
+                            console.warn('[LOGIN] Unknown role:', userRole);
                             window.location.href = 'dashboard.html';
                         }
-                    }, 1000);
+                    }, 500); // ✅ Ridotto a 500ms per redirect più veloce
+                    
                 } else {
+                    console.error('[LOGIN] ❌ Login failed:', result.message);
                     showAlert(result.message || 'Credenziali non valide');
                     
                     // Re-enable button
@@ -324,7 +421,7 @@
                 }
                 
             } catch (error) {
-                console.error('Login error:', error);
+                console.error('[LOGIN] ❌ Login error:', error);
                 showAlert('Errore di connessione. Riprova.');
                 
                 // Re-enable button
@@ -336,6 +433,8 @@
         
         // Auto-focus username field
         document.getElementById('username').focus();
+
+        console.log('[LOGIN] Login page loaded');
     </script>
     
 </body>

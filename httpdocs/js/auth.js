@@ -1,6 +1,7 @@
 /**
  * Authentication Manager
  * Handles login, logout, token management, and session persistence
+ * FIXED: Consistent data format from getCurrentUser()
  */
 
 const Auth = {
@@ -47,10 +48,11 @@ const Auth = {
             console.log('[AUTH] Response data:', data);
             
             if (data.success) {
+                // Store tokens
                 localStorage.setItem('access_token', data.data.tokens.access_token);
                 localStorage.setItem('refresh_token', data.data.tokens.refresh_token);
                 
-                // Store user info con i dati completi dall'API
+                // ✅ CRITICAL: Store complete user data with normalized structure
                 const userData = {
                     user: data.data.user,
                     permissions: data.data.permissions || [],
@@ -64,13 +66,14 @@ const Auth = {
                 
                 localStorage.setItem('user_data', JSON.stringify(userData));
                 
-                // Mantieni anche i vecchi nomi per retrocompatibilità
+                // Backward compatibility
                 localStorage.setItem('hm_access_token', data.data.tokens.access_token);
                 localStorage.setItem('hm_refresh_token', data.data.tokens.refresh_token);
                 localStorage.setItem('hm_user', JSON.stringify(data.data.user));
                 localStorage.setItem('hm_permissions', JSON.stringify(data.data.permissions || []));
                 
                 console.log('[AUTH] Login successful, data saved to localStorage');
+                console.log('[AUTH] User role:', data.data.user.role);
                 
                 return { success: true, user: data.data.user };
             } else {
@@ -114,7 +117,7 @@ const Auth = {
         } catch (error) {
             console.error('[AUTH] Logout API error:', error);
         } finally {
-            // ✅ FIXED: Clear localStorage invece di sessionStorage
+            // Clear all storage
             localStorage.removeItem('access_token');
             localStorage.removeItem('refresh_token');
             localStorage.removeItem('user_data');
@@ -132,6 +135,7 @@ const Auth = {
 
     /**
      * Get current user info from API
+     * ✅ CRITICAL FIX: Always returns normalized format {user, permissions, role_specific_data, assigned_rooms}
      */
     async getCurrentUser() {
         try {
@@ -163,20 +167,23 @@ const Auth = {
             const data = await response.json();
             console.log('[AUTH] Raw API response:', data);
             
-            // Intelligent format detection
+            // ✅ INTELLIGENT FORMAT DETECTION
             let normalizedData = null;
             
+            // Format 1: {success: true, data: {user, permissions, ...}}
             if (data.success === true && data.data) {
                 console.log('[AUTH] Detected nested format with success flag');
                 
                 normalizedData = {
-                    user: data.data.user,
+                    user: data.data.user || data.data,
                     permissions: data.data.permissions || [],
                     session_info: data.data.session_info || null,
                     role_specific_data: data.data.role_specific_data || null,
                     assigned_rooms: data.data.assigned_rooms || []
                 };
-            } else if (data.user) {
+            } 
+            // Format 2: {user: {...}, permissions: [...]}
+            else if (data.user) {
                 console.log('[AUTH] Detected flat format');
                 normalizedData = {
                     user: data.user,
@@ -185,7 +192,20 @@ const Auth = {
                     role_specific_data: data.role_specific_data || null,
                     assigned_rooms: data.assigned_rooms || []
                 };
-            } else {
+            } 
+            // Format 3: Direct user object (backward compatibility)
+            else if (data.id && data.role) {
+                console.log('[AUTH] Detected direct user object');
+                normalizedData = {
+                    user: data,
+                    permissions: [],
+                    session_info: null,
+                    role_specific_data: null,
+                    assigned_rooms: []
+                };
+            }
+            // Fallback
+            else {
                 console.warn('[AUTH] Using fallback format detection');
                 normalizedData = {
                     user: data,
@@ -197,14 +217,14 @@ const Auth = {
             }
             
             if (!normalizedData || !normalizedData.user || !normalizedData.user.id) {
-                console.error('[AUTH] Invalid user data');
+                console.error('[AUTH] Invalid user data:', normalizedData);
                 throw new Error('Invalid response format');
             }
             
-            // ✅ Salva anche in localStorage per consistenza
+            // Save to localStorage for consistency
             localStorage.setItem('user_data', JSON.stringify(normalizedData));
             
-            console.log('[AUTH] User loaded successfully:', {
+            console.log('[AUTH] ✅ User loaded successfully:', {
                 id: normalizedData.user.id,
                 username: normalizedData.user.username,
                 role: normalizedData.user.role,
@@ -234,7 +254,6 @@ const Auth = {
      * Get access token
      */
     getToken() {
-        // ✅ FIXED: Leggi da localStorage invece di sessionStorage
         return localStorage.getItem('access_token') || localStorage.getItem('hm_access_token');
     },
     
@@ -242,15 +261,14 @@ const Auth = {
      * Get refresh token
      */
     getRefreshToken() {
-        // ✅ FIXED: Leggi da localStorage invece di sessionStorage
         return localStorage.getItem('refresh_token') || localStorage.getItem('hm_refresh_token');
     },
     
     /**
-     * Get current user
+     * Get current user (from cache)
      */
     getUser() {
-        // Prova prima il nuovo formato
+        // Try new format first
         let userJson = localStorage.getItem('user_data');
         if (userJson) {
             try {
@@ -261,7 +279,7 @@ const Auth = {
             }
         }
         
-        // Fallback al vecchio formato
+        // Fallback to old format
         userJson = localStorage.getItem('hm_user');
         if (!userJson) return null;
         
@@ -277,7 +295,7 @@ const Auth = {
      * Get user permissions
      */
     getPermissions() {
-        // Prova prima dal nuovo formato
+        // Try new format first
         const userDataJson = localStorage.getItem('user_data');
         if (userDataJson) {
             try {
@@ -290,7 +308,7 @@ const Auth = {
             }
         }
         
-        // Fallback al vecchio formato
+        // Fallback to old format
         const permissionsJson = localStorage.getItem('hm_permissions');
         if (!permissionsJson) return [];
         
