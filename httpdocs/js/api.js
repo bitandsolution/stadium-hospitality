@@ -299,7 +299,7 @@ const API = {
         /**
          * Get guest by ID
          */
-        get: async (id) => {  // ✅ Rinominato da getById
+        get: async (id) => {  
             return await API.get(`/guests/${id}`);
         },
         

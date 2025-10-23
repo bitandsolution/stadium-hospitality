@@ -47,6 +47,7 @@ class GuestRepository {
                 g.contact_email,
                 g.contact_phone,
                 g.notes,
+                g.updated_at,
                 hr.name as room_name,
                 hr.id as room_id,
                 e.name as event_name,
@@ -328,31 +329,48 @@ class GuestRepository {
      * Ottieni lista ospiti per hostess (con sale assegnate)
      */
     public function getGuestsForHostess(int $hostessId, array $filters = []): array {
-        // Prima ottieni le sale assegnate alla hostess
-        $roomsQuery = "
-            SELECT ura.room_id 
-            FROM user_room_assignments ura 
-            WHERE ura.user_id = :hostess_id AND ura.is_active = 1
-        ";
+        $startTime = microtime(true);
 
-        $stmt = $this->db->prepare($roomsQuery);
-        $stmt->execute(['hostess_id' => $hostessId]);
-        $assignedRooms = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        // Get assigned room IDs for hostess
+        $roomStmt = $this->db->prepare("
+            SELECT room_id 
+            FROM user_room_assignments 
+            WHERE user_id = ? AND is_active = 1
+        ");
+        $roomStmt->execute([$hostessId]);
+        $roomIds = $roomStmt->fetchAll(PDO::FETCH_COLUMN);
 
-        if (empty($assignedRooms)) {
+        if (empty($roomIds)) {
             return [
                 'results' => [],
                 'total_found' => 0,
                 'execution_time_ms' => 0,
-                'has_more' => false,
-                'message' => 'No rooms assigned to this hostess'
+                'has_more' => false
             ];
         }
 
-        // Aggiungi le sale ai filtri
-        $filters['room_ids'] = $assignedRooms;
+        // Add room filter
+        $filters['room_ids'] = $roomIds;
 
-        return $this->searchGuests($filters);
+        // Prima calcola il TOTALE senza LIMIT
+        $countFilters = $filters;
+        unset($countFilters['limit']);
+        unset($countFilters['offset']);
+
+        $totalCount = $this->countGuests($countFilters);
+        
+        // Poi usa searchGuests con limit per i risultati paginati
+        $searchResult = $this->searchGuests($filters);
+
+        // Sovrascrivi total_found con il conteggio corretto
+        $searchResult['total_found'] = $totalCount;
+        $searchResult['has_more'] = ($filters['offset'] ?? 0) + count($searchResult['results']) < $totalCount;
+        
+        $executionTime = (microtime(true) - $startTime) * 1000;
+        $searchResult['execution_time_ms'] = round($executionTime, 2);
+        
+        // Use standard search with room filter
+        return $searchResult;
     }
 
     /**
@@ -425,12 +443,12 @@ class GuestRepository {
     }
 
     /**
-     * Conta ospiti totali per filtri
+     * Conta ospiti senza LIMIT 
      */
-    public function countGuests(array $filters = []): int {
-        // Usa la stessa logica di searchGuests ma con COUNT
+
+    private function countGuests(array $filters = []): int {
         $sql = "
-            SELECT COUNT(DISTINCT g.id)
+            SELECT COUNT(DISTINCT g.id) as total
             FROM guests g
             JOIN hospitality_rooms hr ON g.room_id = hr.id
             JOIN events e ON g.event_id = e.id
@@ -440,12 +458,13 @@ class GuestRepository {
         $params = [];
         $conditions = [];
 
-        // Applica gli stessi filtri di searchGuests
+        // Filtro per stadio
         if (!empty($filters['stadium_id'])) {
             $conditions[] = "g.stadium_id = :stadium_id";
             $params['stadium_id'] = $filters['stadium_id'];
         }
 
+        // Filtro per sala (per hostess)
         if (!empty($filters['room_ids'])) {
             if (is_array($filters['room_ids'])) {
                 $placeholders = [];
@@ -460,6 +479,7 @@ class GuestRepository {
             }
         }
 
+        // Ricerca per nome/cognome
         if (!empty($filters['search_query'])) {
             $searchTerms = explode(' ', trim($filters['search_query']));
             $searchConditions = [];
@@ -482,14 +502,88 @@ class GuestRepository {
             }
         }
 
+        // Filtro per evento
+        if (!empty($filters['event_id'])) {
+            $conditions[] = "g.event_id = :event_id";
+            $params['event_id'] = $filters['event_id'];
+        }
+
+        // Filtro per stato accesso
+        if (!empty($filters['access_status'])) {
+            if ($filters['access_status'] === 'checked_in') {
+                $conditions[] = "(
+                    SELECT access_type 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id 
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) = 'entry'";
+            } elseif ($filters['access_status'] === 'not_checked_in') {
+                $conditions[] = "(
+                    SELECT access_type 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id 
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) IS NULL OR (
+                    SELECT access_type 
+                    FROM guest_accesses 
+                    WHERE guest_id = g.id 
+                    ORDER BY access_time DESC, id DESC 
+                    LIMIT 1
+                ) = 'exit'";
+            }
+        }
+
+        // Filtro per livello VIP
+        if (!empty($filters['vip_level'])) {
+            $conditions[] = "g.vip_level = :vip_level";
+            $params['vip_level'] = $filters['vip_level'];
+        }
+
         if (!empty($conditions)) {
             $sql .= " AND " . implode(' AND ', $conditions);
         }
 
+        try {
+            $stmt = $this->db->prepare($sql);
+            
+            foreach ($params as $key => $value) {
+                if (strpos($key, '_id') !== false && $key !== 'stadium_id' && $key !== 'event_id') {
+                    $stmt->bindValue(":$key", (int)$value, PDO::PARAM_INT);
+                } else {
+                    $stmt->bindValue(":$key", $value, PDO::PARAM_STR);
+                }
+            }
+            
+            $stmt->execute();
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            return (int)($result['total'] ?? 0);
+            
+        } catch (Exception $e) {
+            error_log("Guest count failed: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Metodo per ottenere updated_at corrente per lock ottimistico
+     */
+    public function getGuestUpdatedAt(int $guestId, ?int $stadiumId = null): ?string {
+        $sql = "SELECT updated_at FROM guests WHERE id = ?";
+        $params = [$guestId];
+
+        if ($stadiumId !== null) {
+            $sql .= " AND stadium_id = ?";
+            $params[] = $stadiumId;
+        }
+
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-
-        return (int)$stmt->fetchColumn();
+        
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result ? $result['updated_at'] : null;
     }
 
     /**
@@ -533,9 +627,17 @@ class GuestRepository {
     }
 
     /**
-     * Update guest data (full update for admin or limited for hostess)
+     * Update guest data con OPTIMISTIC LOCKING per gestione concorrenza
+     * Previene modifiche concorrenti da multiple hostess
+     * 
+     * @param int $guestId ID ospite
+     * @param array $data Dati da aggiornare
+     * @param int|null $stadiumId ID stadio per security multi-tenant
+     * @param string|null $expectedUpdatedAt Timestamp atteso per lock ottimistico
+     * @return bool
+     * @throws Exception Se c'è conflitto (record modificato da altra hostess)
      */
-    public function update(int $guestId, array $data, ?int $stadiumId = null): bool {
+    public function update(int $guestId, array $data, ?int $stadiumId = null, ?string $expectedUpdatedAt = null): bool {
         try {
             $fields = [];
             $params = [];
@@ -562,7 +664,7 @@ class GuestRepository {
             // Add updated_at timestamp
             $fields[] = "updated_at = NOW()";
 
-            // Build SQL
+            // Build SQL with optimistic locking
             $sql = "UPDATE guests SET " . implode(', ', $fields) . " WHERE id = ?";
             $params[] = $guestId;
 
@@ -572,26 +674,28 @@ class GuestRepository {
                 $params[] = $stadiumId;
             }
 
+            // Verifica che updated_at non sia cambiato
+            // Se un'altra hostess ha modificato il record, la query non aggiornerà nulla
+            if ($expectedUpdatedAt !== null) {
+                $sql .= " AND updated_at = ?";
+                $params[] = $expectedUpdatedAt;
+            }
+
             $stmt = $this->db->prepare($sql);
-            return $stmt->execute($params);
+            $success = $stmt->execute($params);
+            
+            // Controlla se è stata aggiornata qualche riga
+            // Se rowCount === 0 e abbiamo passato expectedUpdatedAt, significa CONFLITTO
+            if ($success && $stmt->rowCount() === 0 && $expectedUpdatedAt !== null) {
+                throw new Exception("CONFLICT: Record was modified by another user");
+            }
 
-        } catch (\Exception $e) {
+            return $success;
+
+        } catch (Exception $e) {
             error_log("Guest update failed: " . $e->getMessage());
-            throw new \Exception("Failed to update guest: " . $e->getMessage());
+            throw $e;
         }
-    }
-
-    /**
-     * Soft delete guest
-     */
-    public function delete(int $guestId): bool {
-        $stmt = $this->db->prepare("
-            UPDATE guests 
-            SET is_active = 0, updated_at = NOW()
-            WHERE id = ?
-        ");
-        
-        return $stmt->execute([$guestId]);
     }
 
     /**
@@ -611,6 +715,7 @@ class GuestRepository {
                 g.seat_number,
                 g.room_id,
                 g.notes,
+                g.updated_at,
                 hr.name as room_name
             FROM guests g
             LEFT JOIN hospitality_rooms hr ON g.room_id = hr.id
@@ -657,4 +762,71 @@ class GuestRepository {
             return false;
         }
     }
+
+    /**
+     * Conta TUTTI gli ospiti assegnati a una hostess
+     * Funzione PUBBLICA chiamata dal Controller
+     */
+    public function countGuestsForHostess(int $hostessId, array $filters = []): int {
+        // Get assigned room IDs for hostess
+        $roomStmt = $this->db->prepare("
+            SELECT room_id 
+            FROM user_room_assignments 
+            WHERE user_id = ? AND is_active = 1
+        ");
+        $roomStmt->execute([$hostessId]);
+        $roomIds = $roomStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($roomIds)) {
+            return 0;
+        }
+
+        // Add room filter
+        $filters['room_ids'] = $roomIds;
+        
+        // Usa la funzione privata countGuests
+        return $this->countGuests($filters);
+    }
+
+    /**
+     * Ottieni la capacità totale delle sale assegnate a una hostess
+     * 
+     * Questa funzione somma le capacità di tutte le sale assegnate
+     * alla hostess per determinare il limite massimo di ospiti caricabili.
+     * 
+     * @param int $hostessId ID dell'hostess
+     * @return int Capacità totale (somma delle capacità di tutte le sale)
+     */
+    public function getTotalCapacityForHostess(int $hostessId): int {
+        try {
+            $sql = "
+                SELECT COALESCE(SUM(hr.capacity), 0) as total_capacity
+                FROM user_room_assignments ura
+                INNER JOIN hospitality_rooms hr ON ura.room_id = hr.id
+                WHERE ura.user_id = :user_id 
+                AND ura.is_active = 1
+                AND hr.is_active = 1
+            ";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(['user_id' => $hostessId]);
+            
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            $capacity = (int)($result['total_capacity'] ?? 0);
+            
+            // Log per debug
+            error_log(sprintf(
+                "Hostess %d - Total room capacity: %d",
+                $hostessId,
+                $capacity
+            ));
+            
+            return $capacity;
+            
+        } catch (Exception $e) {
+            error_log("Error getting hostess room capacity: " . $e->getMessage());
+            return 0;
+        }
+    }
+
 }

@@ -10,6 +10,7 @@ class HostessGuestDetail {
         this.user = null;
         this.userData = null;
         this.confirmCallback = null;
+        this.guestUpdatedAt = null;
         
         this.init();
     }
@@ -31,14 +32,12 @@ class HostessGuestDetail {
             
             console.log('[GUEST-DETAIL] User data received:', userData);
             
-            // ✅ FIX: Estrai correttamente il ruolo
             const userRole = userData.user?.role || userData.role;
             const viewType = userData.role_specific_data?.view_type;
             
             console.log('[GUEST-DETAIL] User role:', userRole);
             console.log('[GUEST-DETAIL] View type:', viewType);
             
-            // ✅ VERIFICA MULTIPLA
             const isHostess = (
                 userRole === 'hostess' ||
                 viewType === 'hostess_checkin' ||
@@ -193,19 +192,74 @@ class HostessGuestDetail {
         }
     }
 
+    /**
+     * Attacca event listener dinamici ai bottoni check-in/out
+     * Chiamato dopo ogni render per garantire che i bottoni funzionino
+     */
+    attachDynamicEventListeners() {
+        console.log('[GUEST-DETAIL] Attaching dynamic event listeners to action buttons...');
+        
+        // Check-in button
+        const checkinBtn = document.getElementById('checkinBtn');
+        if (checkinBtn) {
+            // Rimuovi vecchi listener (se esistono)
+            checkinBtn.replaceWith(checkinBtn.cloneNode(true));
+            const newCheckinBtn = document.getElementById('checkinBtn');
+            
+            newCheckinBtn.addEventListener('click', () => {
+                console.log('[GUEST-DETAIL] Check-in button clicked');
+                this.showConfirmation(
+                    'Conferma Check-in',
+                    `Vuoi effettuare il check-in di ${this.guest.first_name} ${this.guest.last_name}?`,
+                    () => this.performCheckin()
+                );
+            });
+            console.log('[GUEST-DETAIL] Check-in listener attached');
+        } else {
+            console.warn('[GUEST-DETAIL] Check-in button not found in DOM');
+        }
+
+        // Check-out button
+        const checkoutBtn = document.getElementById('checkoutBtn');
+        if (checkoutBtn) {
+            // Rimuovi vecchi listener (se esistono)
+            checkoutBtn.replaceWith(checkoutBtn.cloneNode(true));
+            const newCheckoutBtn = document.getElementById('checkoutBtn');
+            
+            newCheckoutBtn.addEventListener('click', () => {
+                console.log('[GUEST-DETAIL] Check-out button clicked');
+                this.showConfirmation(
+                    'Conferma Check-out',
+                    `Vuoi effettuare il check-out di ${this.guest.first_name} ${this.guest.last_name}?`,
+                    () => this.performCheckout()
+                );
+            });
+            console.log('[GUEST-DETAIL] Check-out listener attached');
+        } else {
+            console.warn('[GUEST-DETAIL] Check-out button not found in DOM');
+        }
+    }
+
     async loadGuestDetail() {
         try {
-            console.log('[GUEST-DETAIL] Loading guest detail...');
+            console.log('[GUEST-DETAIL] Loading guest detail for ID:', this.guestId);
             this.showLoading();
 
             const response = await API.guests.get(this.guestId);
-
-            if (response.success && response.data.guest) {
+            
+            if (response.success && response.data && response.data.guest) {
                 this.guest = response.data.guest;
-                console.log('[GUEST-DETAIL] Guest loaded:', this.guest);
+                
+                if (!this.guest.first_name || !this.guest.last_name) {
+                    throw new Error('Dati ospite incompleti');
+                }
+                
+                this.guestUpdatedAt = this.guest.updated_at;
                 
                 this.renderGuestDetail();
                 this.hideLoading();
+                this.attachDynamicEventListeners();
+                
             } else {
                 throw new Error(response.message || 'Ospite non trovato');
             }
@@ -213,20 +267,31 @@ class HostessGuestDetail {
         } catch (error) {
             console.error('[GUEST-DETAIL] Load error:', error);
             this.hideLoading();
-            this.showError(error.message || 'Errore nel caricamento');
+            
+            let errorMessage = 'Errore nel caricamento';
+            
+            if (error.status === 403) {
+                errorMessage = 'Non hai accesso a questo ospite';
+            } else if (error.status === 404) {
+                errorMessage = 'Ospite non trovato';
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            
+            this.showError(errorMessage);
         }
     }
 
     renderGuestDetail() {
         console.log('[GUEST-DETAIL] Rendering guest detail...');
 
-        // ✅ Guest name (con controllo null)
+        // Guest name (con controllo null)
         const guestName = document.getElementById('guestName');
         if (guestName) {
             guestName.textContent = `${this.guest.first_name} ${this.guest.last_name}`;
         }
 
-        // ✅ Company (con controllo null)
+        // Company (con controllo null)
         const guestCompany = document.getElementById('guestCompany');
         if (guestCompany) {
             guestCompany.textContent = this.guest.company_name || '';
@@ -239,13 +304,13 @@ class HostessGuestDetail {
         // Status Indicator
         this.updateStatusIndicator(this.guest.access_status, this.guest.last_access_time);
 
-        // ✅ Room (con controllo null)
+        // Room (con controllo null)
         const guestRoom = document.getElementById('guestRoom');
         if (guestRoom) {
             guestRoom.textContent = this.guest.room_name || 'Sala non assegnata';
         }
 
-        // ✅ Table (con controllo null)
+        // Table (con controllo null)
         const guestTable = document.getElementById('guestTable');
         const tableInfo = document.getElementById('tableInfo');
         if (this.guest.table_number) {
@@ -255,7 +320,7 @@ class HostessGuestDetail {
             if (tableInfo) tableInfo.style.display = 'none';
         }
 
-        // ✅ Seat (con controllo null)
+        // Seat (con controllo null)
         const guestSeat = document.getElementById('guestSeat');
         const seatInfo = document.getElementById('seatInfo');
         if (this.guest.seat_number) {
@@ -268,7 +333,7 @@ class HostessGuestDetail {
         // Contact Info
         this.renderContactInfo();
 
-        // ✅ Event Info (con controllo null)
+        // Event Info (con controllo null)
         const eventName = document.getElementById('eventName');
         const eventDate = document.getElementById('eventDate');
         if (eventName) eventName.textContent = this.guest.event_name || 'Evento non disponibile';
@@ -282,7 +347,7 @@ class HostessGuestDetail {
             });
         }
 
-        // ✅ Notes (con controllo null)
+        // Notes (con controllo null)
         const notesSection = document.getElementById('notesSection');
         const guestNotes = document.getElementById('guestNotes');
         if (this.guest.notes) {
@@ -295,7 +360,7 @@ class HostessGuestDetail {
         // Action buttons
         this.updateActionButtons(this.guest.access_status);
 
-        // ✅ Show main content (con controllo null)
+        // Show main content (con controllo null)
         const mainContent = document.getElementById('mainContent');
         if (mainContent) mainContent.classList.remove('hidden');
     }
@@ -400,31 +465,32 @@ class HostessGuestDetail {
             this.showProcessing();
 
             const response = await API.guests.checkin(this.guestId);
-
+            
             if (response.success) {
                 this.showSuccess(
-                    'Check-in completato!',
-                    `Check-in effettuato per ${this.guest.first_name} ${this.guest.last_name}`
+                    'Check-in effettuato!',
+                    `${this.guest.first_name} ${this.guest.last_name} è stato registrato in ingresso.`
                 );
-
-                this.guest.access_status = 'checked_in';
-                this.guest.last_access_time = new Date().toISOString();
-
+                
                 setTimeout(() => {
                     this.hideSuccess();
-                    this.updateStatusIndicator('checked_in', this.guest.last_access_time);
-                    this.updateActionButtons('checked_in');
                     this.hideProcessing();
+                    this.loadGuestDetail();
                 }, 2000);
-
             } else {
                 throw new Error(response.message || 'Errore durante il check-in');
             }
-
         } catch (error) {
             console.error('[GUEST-DETAIL] Check-in error:', error);
             this.hideProcessing();
-            alert('Errore durante il check-in: ' + error.message);
+            
+            // Gestione conflitto
+            if (error.status === 409 || error.message?.includes('conflict')) {
+                alert('⚠️ Un\'altra hostess ha modificato questo ospite.\n\nRicarico i dati...');
+                await this.loadGuestDetail();
+            } else {
+                alert('Errore durante il check-in: ' + error.message);
+            }
         }
     }
 
@@ -434,31 +500,32 @@ class HostessGuestDetail {
             this.showProcessing();
 
             const response = await API.guests.checkout(this.guestId);
-
+            
             if (response.success) {
                 this.showSuccess(
-                    'Check-out completato!',
-                    `Check-out effettuato per ${this.guest.first_name} ${this.guest.last_name}`
+                    'Check-out effettuato!',
+                    `${this.guest.first_name} ${this.guest.last_name} è stato registrato in uscita.`
                 );
-
-                this.guest.access_status = 'not_checked_in';
-                this.guest.last_access_time = null;
-
+                
                 setTimeout(() => {
                     this.hideSuccess();
-                    this.updateStatusIndicator('not_checked_in', null);
-                    this.updateActionButtons('not_checked_in');
                     this.hideProcessing();
+                    this.loadGuestDetail();
                 }, 2000);
-
             } else {
                 throw new Error(response.message || 'Errore durante il check-out');
             }
-
         } catch (error) {
             console.error('[GUEST-DETAIL] Check-out error:', error);
             this.hideProcessing();
-            alert('Errore durante il check-out: ' + error.message);
+            
+            // Gestione conflitto
+            if (error.status === 409 || error.message?.includes('conflict')) {
+                alert('⚠️ Un\'altra hostess ha modificato questo ospite.\n\nRicarico i dati...');
+                await this.loadGuestDetail();
+            } else {
+                alert('Errore durante il check-out: ' + error.message);
+            }
         }
     }
 
@@ -793,7 +860,8 @@ class HostessGuestDetail {
                 table_number: document.getElementById('editTableNumber').value.trim(),
                 seat_number: document.getElementById('editSeatNumber').value.trim(),
                 vip_level: document.getElementById('editVipLevel').value,
-                notes: document.getElementById('editNotes').value.trim()
+                notes: document.getElementById('editNotes').value.trim(),
+                expected_updated_at: this.guestUpdatedAt
             };
             
             // Validate required fields
@@ -820,28 +888,58 @@ class HostessGuestDetail {
             // Show processing
             this.showProcessing();
             
-            // Call API
-            const response = await API.guests.update(this.guestId, data);
-            
-            if (response.success) {
-                // Update local guest data
-                Object.assign(this.guest, data);
+            try {
+                // Call API
+                const response = await API.guests.update(this.guestId, data);
                 
-                // Show success
-                this.showSuccess(
-                    'Modifiche salvate!',
-                    `I dati di ${data.first_name} ${data.last_name} sono stati aggiornati.`
-                );
-                
-                // Re-render detail after 2 seconds
-                setTimeout(() => {
-                    this.hideSuccess();
-                    this.renderGuestDetail();
+                if (response.success) {
+                    // Update local guest data
+                    Object.assign(this.guest, data);
+                    
+                    // Aggiorna updated_at con il nuovo valore dal server
+                    if (response.data && response.data.guest && response.data.guest.updated_at) {
+                        this.guestUpdatedAt = response.data.guest.updated_at;
+                        console.log('[GUEST-DETAIL] Updated updated_at:', this.guestUpdatedAt);
+                    }
+                    
+                    // Show success
+                    this.showSuccess(
+                        'Modifiche salvate!',
+                        `I dati di ${data.first_name} ${data.last_name} sono stati aggiornati.`
+                    );
+                    
+                    // Re-render detail after 2 seconds
+                    setTimeout(() => {
+                        this.hideSuccess();
+                        this.hideProcessing();
+                        // Ricarica i dati aggiornati dal server
+                        this.loadGuestDetail();
+                    }, 2000);
+                    
+                } else {
+                    throw new Error(response.message || 'Errore nel salvataggio');
+                }
+            } catch (error) {
+                // GESTIONE CONFLITTO HTTP 409
+                if (error.status === 409 || 
+                    (error.response && error.response.data && error.response.data.conflict) ||
+                    error.message?.includes('conflict')) {
+                    
+                    console.warn('[GUEST-DETAIL] Data conflict detected');
                     this.hideProcessing();
-                }, 2000);
+                    
+                    alert('⚠️ CONFLITTO DATI\n\n' +
+                          'Un\'altra hostess ha modificato questo ospite mentre stavi lavorando.\n\n' +
+                          'I dati verranno ricaricati con le modifiche più recenti.');
+                    
+                    // Ricarica i dati aggiornati
+                    await this.loadGuestDetail();
+                    
+                    return;
+                }
                 
-            } else {
-                throw new Error(response.message || 'Errore nel salvataggio');
+                // Altri errori
+                throw error;
             }
             
         } catch (error) {

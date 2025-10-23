@@ -198,10 +198,14 @@
                     <i data-lucide="x" class="w-5 h-5 text-gray-400"></i>
                 </button>
             </div>
+            <div id="guestCounter" class="flex items-center justify-center gap-2 px-4 py-2 bg-purple-50 rounded-lg text-purple-700 font-medium text-sm mt-3">
+                <i data-lucide="users" class="w-4 h-4"></i>
+            <span>Caricamento...</span>
+        </div>
         </div>
         
         <!-- Stats Bar -->
-        <div class="px-4 pb-3 flex items-center justify-around text-center border-t border-gray-100 pt-3">
+        <div class="px-4 pb-3 flex items-center justify-around text-center border-t border-gray-100 pt-3" id="statsCards">
             <div>
                 <div class="text-lg font-bold text-gray-900" id="statTotal">-</div>
                 <div class="text-xs text-gray-500">Totali</div>
@@ -227,7 +231,7 @@
     </div>
 
     <!-- Main Content -->
-    <main class="pt-60 pb-96 px-4 scroll-smooth" id="mainContent">
+    <main class="pt-60 pb-24 px-4 scroll-smooth" id="mainContent">
         
         <!-- Quick Filters -->
         <div class="mb-4 flex space-x-2 overflow-x-auto pb-2">
@@ -262,6 +266,15 @@
                     <div class="h-3 bg-gray-200 rounded w-1/2"></div>
                 </div>
             </div>
+        </div>
+        <div id="loadMoreContainer" class="px-4 pb-6">
+            <button 
+                id="loadMoreBtn" 
+                class="w-full py-3 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-medium rounded-lg shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                style="display: none;">
+                <i data-lucide="chevron-down" class="w-5 h-5"></i>
+                <span>Carica altri ospiti</span>
+            </button>
         </div>
 
         <!-- Empty State -->

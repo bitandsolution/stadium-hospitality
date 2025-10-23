@@ -1,7 +1,6 @@
 /**
  * Hostess Dashboard - Main Logic
  * Interfaccia semplificata per check-in veloce ospiti
- * FIXED: Corretta gestione ruolo hostess e redirect
  */
 
 class HostessDashboard {
@@ -12,6 +11,19 @@ class HostessDashboard {
         this.searchQuery = '';
         this.stats = { total: 0, checkedIn: 0, pending: 0 };
         this.refreshInterval = null;
+        
+        // ========== NUOVE PROPRIETÀ ==========
+        this.pagination = {
+            currentLimit: 100,        // Carica inizialmente solo 50 ospiti
+            initialLimit: 100,        // Limite iniziale
+            incrementStep: 100,      // Carica 100 alla volta quando si espande
+            maxLimit: 1000,          // Limite massimo assoluto
+            totalAvailable: 0,       // Totale ospiti disponibili (dal server)
+            hasMore: false           // Ci sono altri ospiti da caricare?
+        };
+        this.isSearchingServer = false;  // Flag per ricerca server-side
+        // ====================================
+        
         this.pullToRefresh = {
             startY: 0,
             currentY: 0,
@@ -39,7 +51,7 @@ class HostessDashboard {
             
             console.log('[HOSTESS] User data received:', userData);
             
-            // ✅ FIX: Estrai CORRETTAMENTE il ruolo - supporta TUTTE le strutture
+            // Estrai CORRETTAMENTE il ruolo - supporta TUTTE le strutture
             let userRole = null;
             let viewType = null;
             let permissions = [];
@@ -69,7 +81,7 @@ class HostessDashboard {
                 permissions
             });
             
-            // ✅ VERIFICA MULTIPLA - Accetta se ALMENO UNO è vero
+            // VERIFICA MULTIPLA - Accetta se ALMENO UNO è vero
             const isHostess = (
                 userRole === 'hostess' ||
                 viewType === 'hostess_checkin' ||
@@ -89,7 +101,7 @@ class HostessDashboard {
                 console.error('   View type:', viewType);
                 console.error('   Permissions:', permissions);
                 
-                // ✅ FIX: Non mostrare toast, redirect diretto
+                // FIX: Non mostrare toast, redirect diretto
                 console.log('[HOSTESS] Redirecting to correct dashboard...');
                 
                 // Redirect alla dashboard corretta per il ruolo
@@ -105,7 +117,7 @@ class HostessDashboard {
             
             console.log('[HOSTESS] ✅ Access granted');
 
-            // ✅ Salva i dati utente completi
+            // Salva i dati utente completi
             this.user = userData.user || { 
                 id: userData.id,
                 username: userData.username,
@@ -151,7 +163,6 @@ class HostessDashboard {
             userNameEl.textContent = userName;
         }
         
-        // ✅ FIX: Usa userData invece di user per assigned_rooms
         const userRoomEl = document.getElementById('userRoom');
         if (userRoomEl) {
             if (this.userData.assigned_rooms && this.userData.assigned_rooms.length > 0) {
@@ -163,6 +174,17 @@ class HostessDashboard {
                 console.warn('[HOSTESS] No assigned rooms found');
             }
         }
+
+        // Nascondi le card con i totali statistiche
+        const statsCards = document.getElementById('statsCards');
+        if (statsCards) {
+            statsCards.style.display = 'none';
+            console.log('[HOSTESS] Statistics cards hidden');
+        }
+        
+        // ========== NUOVA UI: Aggiungi contatore ospiti ==========
+        this.updateGuestCounter();
+        // ========================================================
     }
 
     attachEventListeners() {
@@ -173,12 +195,43 @@ class HostessDashboard {
         const clearSearch = document.getElementById('clearSearch');
         
         if (searchInput) {
+            // ========== MODIFICA: Aggiungi ricerca server-side ==========
             searchInput.addEventListener('input', (e) => {
                 this.searchQuery = e.target.value.toLowerCase().trim();
                 if (clearSearch) {
                     clearSearch.classList.toggle('hidden', !this.searchQuery);
                 }
-                this.filterGuests();
+                
+                // Se la ricerca ha almeno 2 caratteri, cerca anche sul server
+                // Pausa auto-refresh durante la ricerca
+                if (this.searchQuery.length >= 2) {
+                    this.stopAutoRefresh();
+                    this.performServerSearch(this.searchQuery);
+                } else {
+                    this.isSearchingServer = false;
+                    this.filterGuests();
+                    // Riattiva auto-refresh solo se non in ricerca
+                    if (!this.searchQuery) {
+                        this.startAutoRefresh();
+                    }
+                }
+            });
+
+            // Shortcut ESC per pulire velocemente la ricerca
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' || e.keyCode === 27) {
+                    e.preventDefault();
+                    searchInput.value = '';
+                    this.searchQuery = '';
+                    this.isSearchingServer = false;
+                    if (clearSearch) {
+                        clearSearch.classList.add('hidden');
+                    }
+                    this.filterGuests();
+                    // Riattiva auto-refresh quando si cancella la ricerca
+                    this.startAutoRefresh();
+                    console.log('[HOSTESS] Search cleared with ESC key');
+                }
             });
         }
         
@@ -187,8 +240,11 @@ class HostessDashboard {
                 if (searchInput) {
                     searchInput.value = '';
                     this.searchQuery = '';
+                    this.isSearchingServer = false;
                     clearSearch.classList.add('hidden');
                     this.filterGuests();
+                    // Riattiva auto-refresh quando si cancella la ricerca
+                    this.startAutoRefresh();
                     searchInput.focus();
                 }
             });
@@ -236,8 +292,16 @@ class HostessDashboard {
                 if (toast) toast.classList.add('hidden');
             });
         }
+        
+        // ========== Bottone "Vedi tutti" ==========
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', () => this.loadMoreGuests());
+        }
+        // ================================================
     }
 
+    // ========== loadGuests con paginazione ==========
     async loadGuests(showLoading = true) {
         try {
             console.log('[HOSTESS] Loading guests...');
@@ -246,21 +310,50 @@ class HostessDashboard {
                 this.showLoading();
             }
 
-            // Use guest search endpoint with hostess filters
-            const response = await API.guests.search({
-                limit: 500,
+            // Se c'è una ricerca attiva, mantienila
+            const searchParams = {
+                limit: this.pagination.currentLimit,
+                offset: 0,
                 access_status: this.currentFilter === 'all' ? null : this.currentFilter
-            });
+            };
+
+            if (this.isSearchingServer && this.searchQuery) {
+                searchParams.q = this.searchQuery;
+            }
+
+            // Use guest search endpoint with hostess filters
+            const response = await API.guests.search(searchParams);
 
             console.log('[HOSTESS] API response:', response);
 
             if (response.success) {
                 this.guests = response.data.guests || [];
+                
+                // Aggiorna info paginazione dal server
+                if (response.data.pagination) {
+                    // total_count = TUTTI gli ospiti disponibili (dal conteggio completo)
+                    this.pagination.totalAvailable = response.data.pagination.total_count || 0;
+                    
+                    // has_more = ci sono altri record da caricare?
+                    this.pagination.hasMore = this.guests.length < this.pagination.totalAvailable;
+                    
+                    console.log('[HOSTESS] Pagination info:', {
+                        loaded: this.guests.length,
+                        totalAvailable: this.pagination.totalAvailable,
+                        hasMore: this.pagination.hasMore,
+                        currentLimit: this.pagination.currentLimit
+                    });
+                }
+                
                 console.log('[HOSTESS] Loaded', this.guests.length, 'guests');
+                console.log('[HOSTESS] Total available:', this.pagination.totalAvailable);
+                console.log('[HOSTESS] Has more:', this.pagination.hasMore);
                 
                 this.updateStats();
                 this.filterGuests();
                 this.hideLoading();
+                this.updateGuestCounter();  // Aggiorna contatore
+                this.updateLoadMoreButton();  // Aggiorna bottone "Vedi tutti"
                 
                 if (this.guests.length === 0) {
                     this.showEmpty('Non hai ospiti assegnati nelle tue sale');
@@ -275,6 +368,156 @@ class HostessDashboard {
             this.showError(error.message || 'Errore di connessione');
         }
     }
+ 
+
+    // ========== Carica più ospiti ==========
+    async loadMoreGuests() {
+        try {
+            console.log('[HOSTESS] Loading more guests...', {
+                currentLoaded: this.guests.length,
+                currentLimit: this.pagination.currentLimit,
+                totalAvailable: this.pagination.totalAvailable
+            });
+            
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            if (loadMoreBtn) {
+                loadMoreBtn.disabled = true;
+                loadMoreBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> <span>Caricamento...</span>';
+                lucide.createIcons();
+            }
+            
+            // Incrementa il limite invece di usare offset
+            const oldLimit = this.pagination.currentLimit;
+            this.pagination.currentLimit = Math.min(
+                this.pagination.currentLimit + this.pagination.incrementStep,
+                this.pagination.maxLimit
+            );
+            
+            console.log('[HOSTESS] Limit increased:', {
+                from: oldLimit,
+                to: this.pagination.currentLimit,
+                increment: this.pagination.incrementStep
+            });
+            
+            // Ricarica con il nuovo limite (offset sempre 0)
+            await this.loadGuests(false);
+            
+            if (loadMoreBtn) {
+                loadMoreBtn.disabled = false;
+            }
+            
+            const newlyLoaded = this.guests.length - oldLimit;
+            this.showToast(`Caricati ${newlyLoaded} nuovi ospiti (${this.guests.length}/${this.pagination.totalAvailable})`, 'success');
+            
+        } catch (error) {
+            console.error('[HOSTESS] Load more error:', error);
+            this.showToast('Errore nel caricamento', 'error');
+            
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            if (loadMoreBtn) {
+                loadMoreBtn.disabled = false;
+                this.updateLoadMoreButton();
+            }
+        }
+    }
+    // ======================================================
+
+    // ========== NUOVA FUNZIONE: Ricerca server-side ==========
+    async performServerSearch(query) {
+        try {
+            console.log('[HOSTESS] Performing server search:', query);
+            
+            this.isSearchingServer = true;
+            
+            // Mostra indicatore di ricerca
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.classList.add('border-purple-500');
+            }
+            
+            // Cerca sul server senza limite (per trovare TUTTI i match)
+            const response = await API.guests.search({
+                q: query,
+                limit: 1000,  // Limite alto per trovare tutti i match
+                access_status: this.currentFilter === 'all' ? null : this.currentFilter
+            });
+            
+            if (response.success) {
+                // IMPORTANTE: Sostituisci temporaneamente la lista con i risultati della ricerca
+                this.guests = response.data.guests || [];
+                console.log('[HOSTESS] Server search found', this.guests.length, 'matches');
+                
+                // Aggiorna la UI
+                this.updateStats();
+                this.filterGuests();
+                this.updateGuestCounter();
+                
+                // Nascondi il bottone "Vedi tutti" durante la ricerca
+                const loadMoreBtn = document.getElementById('loadMoreBtn');
+                if (loadMoreBtn) {
+                    loadMoreBtn.style.display = 'none';
+                }
+                
+                if (this.guests.length === 0) {
+                    this.showEmpty(`Nessun ospite trovato per "${query}"`);
+                }
+            }
+            
+            // Rimuovi indicatore di ricerca
+            if (searchInput) {
+                searchInput.classList.remove('border-purple-500');
+            }
+            
+        } catch (error) {
+            console.error('[HOSTESS] Server search error:', error);
+            this.isSearchingServer = false;
+            
+            // In caso di errore, usa solo la ricerca locale
+            this.filterGuests();
+        }
+    }
+    // ========================================================
+
+    // ========== NUOVA FUNZIONE: Aggiorna contatore ospiti ==========
+    updateGuestCounter() {
+        const counterEl = document.getElementById('guestCounter');
+        if (counterEl) {
+            const showing = this.filteredGuests.length;
+            const total = this.pagination.totalAvailable;
+            
+            if (this.isSearchingServer) {
+                counterEl.innerHTML = `<i data-lucide="search" class="w-4 h-4"></i> <span>Trovati: ${showing}</span>`;
+            } else if (this.pagination.hasMore) {
+                counterEl.innerHTML = `<i data-lucide="users" class="w-4 h-4"></i> <span>Visualizzati: ${showing} di ${total}</span>`;
+            } else {
+                counterEl.innerHTML = `<i data-lucide="users" class="w-4 h-4"></i> <span>Ospiti: ${showing}</span>`;
+            }
+            
+            lucide.createIcons();
+        }
+    }
+    // ==============================================================
+
+    // ========== NUOVA FUNZIONE: Aggiorna bottone "Vedi tutti" ==========
+    updateLoadMoreButton() {
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (!loadMoreBtn) return;
+        
+        // Mostra il bottone solo se ci sono più ospiti da caricare
+        if (this.pagination.hasMore && !this.isSearchingServer) {
+            loadMoreBtn.style.display = 'flex';
+            const remaining = this.pagination.totalAvailable - this.guests.length;
+            const nextBatchSize = Math.min(this.pagination.incrementStep, remaining);
+            loadMoreBtn.innerHTML = `
+                <i data-lucide="chevron-down" class="w-5 h-5"></i>
+                <span>Carica altri ${nextBatchSize} ospiti (${remaining} rimanenti)</span>
+            `;
+            lucide.createIcons();
+        } else {
+            loadMoreBtn.style.display = 'none';
+        }
+    }
+    // ==================================================================
 
     showToast(message, type = 'info') {
         const toast = document.getElementById('toast');
@@ -291,6 +534,7 @@ class HostessDashboard {
         const icons = {
             success: '<i data-lucide="check-circle" class="w-5 h-5 text-green-600"></i>',
             error: '<i data-lucide="alert-circle" class="w-5 h-5 text-red-600"></i>',
+            warning: '<i data-lucide="alert-triangle" class="w-5 h-5 text-orange-600"></i>',
             info: '<i data-lucide="info" class="w-5 h-5 text-blue-600"></i>'
         };
         
@@ -323,7 +567,8 @@ class HostessDashboard {
             );
         }
 
-        if (this.searchQuery) {
+        // Ricerca locale SOLO se non stiamo cercando sul server
+        if (this.searchQuery && !this.isSearchingServer) {
             filtered = filtered.filter(g => {
                 const fullName = `${g.first_name} ${g.last_name}`.toLowerCase();
                 const company = (g.company_name || '').toLowerCase();
@@ -334,6 +579,7 @@ class HostessDashboard {
 
         this.filteredGuests = filtered;
         this.renderGuests();
+        this.updateGuestCounter();  // Aggiorna contatore dopo ogni filtro
     }
 
     renderGuests() {
@@ -362,22 +608,28 @@ class HostessDashboard {
             const firstName = guest.first_name || '';
             const roomName = guest.room_name || 'N/A';
             const tableNumber = guest.table_number || '';
+            const seatNumber = guest.seat_number || '';
             const accessStatus = guest.access_status || 'not_checked_in';
             const isCheckedIn = accessStatus === 'checked_in';
+
+            let displayText = `${lastName} ${firstName}`;
+            displayText += ` • ${roomName}`;
+            if (tableNumber) {
+                displayText += ` • Tavolo ${tableNumber}`;
+            }
+            if (seatNumber) {
+                displayText += ` • Posto ${seatNumber}`;
+            }
             
             return `
-                <div class="guest-card bg-white rounded-lg p-3 shadow-sm border-l-4 ${isCheckedIn ? 'border-green-500' : 'border-orange-400'}" 
+                <div class="guest-card bg-white rounded-lg p-4 shadow-sm border-l-4 ${isCheckedIn ? 'border-green-500' : 'border-orange-400'}" 
                     data-guest-id="${guest.id}">
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex-1 min-w-0"
                             onclick="HostessDashboardInstance.showGuestDetail(${guest.id})"
                             style="cursor: pointer;">
-                            <div class="font-semibold text-gray-900 truncate">
-                                ${lastName} ${firstName}
-                            </div>
-                            <div class="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                                <span>${roomName}</span>
-                                ${tableNumber ? `<span>• Tavolo ${tableNumber}</span>` : ''}
+                            <div class="text-lg font-bold text-gray-900 truncate leading-tight">
+                                ${displayText}
                             </div>
                         </div>
                         
@@ -473,6 +725,13 @@ class HostessDashboard {
                 this.pullToRefresh.isRefreshing = true;
                 indicator.classList.add('active');
                 
+                // Reset paginazione durante il refresh
+                // this.pagination.currentLimit = this.pagination.initialLimit;
+                // this.isSearchingServer = false;
+                // const searchInput = document.getElementById('searchInput');
+                // if (searchInput) searchInput.value = '';
+                // this.searchQuery = '';
+                
                 await this.loadGuests(false);
                 this.showToast('Dati aggiornati', 'success');
                 
@@ -491,10 +750,22 @@ class HostessDashboard {
         });
     }
 
+    /**
+     * Auto-refresh 2s per aggiornamenti quasi in tempo reale
+     * Questo permette a multiple hostess di vedere le modifiche fatte dalle altre quasi immediatamente
+     */
     startAutoRefresh() {
+        // Ferma eventuali refresh esistenti
+        this.stopAutoRefresh();
+        
         this.refreshInterval = setInterval(() => {
-            this.loadGuests(false);
-        }, 30000);
+            // Non fare refresh se c'è una ricerca attiva
+            if (!this.isSearchingServer && !this.searchQuery) {
+                this.loadGuests(false);
+            } else {
+                console.log('[HOSTESS] Auto-refresh skipped (search active)');
+            }
+        }, 2000);
     }
 
     stopAutoRefresh() {
@@ -557,7 +828,12 @@ class HostessDashboard {
             }
         } catch (error) {
             console.error('[HOSTESS] Quick check-in error:', error);
-            this.showToast('Errore durante il check-in', 'error');
+            if (error.status === 409 || error.message?.includes('conflict')) {
+                this.showToast('Ospite modificato da altra hostess. Ricarico...', 'warning');
+                setTimeout(() => this.loadGuests(false), 1500);
+            } else {
+                this.showToast('Errore durante il check-in', 'error');
+            }
         }
     }
 
@@ -584,7 +860,12 @@ class HostessDashboard {
             }
         } catch (error) {
             console.error('[HOSTESS] Quick check-out error:', error);
-            this.showToast('Errore durante il check-out', 'error');
+            if (error.status === 409 || error.message?.includes('conflict')) {
+                this.showToast('Ospite modificato da altra hostess. Ricarico...', 'warning');
+                setTimeout(() => this.loadGuests(false), 1500);
+            } else {
+                this.showToast('Errore durante il check-out', 'error');
+            }
         }
     }
 

@@ -56,8 +56,24 @@ class GuestController {
             $eventId = $_GET['event_id'] ?? null;
             $vipLevel = $_GET['vip_level'] ?? null;
             $accessStatus = $_GET['access_status'] ?? null;
-            $limit = min((int)($_GET['limit'] ?? 50), 100);
+            // Calcola limite dinamico basato su capacità sala
+            $requestedLimit = (int)($_GET['limit'] ?? 100);
             $offset = max((int)($_GET['offset'] ?? 0), 0);
+
+            $maxLimit = 500;
+
+            if ($decoded->role === 'hostess') {
+                $roomCapacity = $this->guestRepository->getTotalCapacityForHostess($decoded->user_id);
+                
+                if ($roomCapacity > 0) {
+                    $maxLimit = min($roomCapacity, 1000);
+                    error_log(sprintf("[LIMIT] Hostess %d - Capacity: %d, Limit: %d", $decoded->user_id, $roomCapacity, $maxLimit));
+                }
+            } else {
+                $maxLimit = 1000;
+            }
+
+            $limit = min($requestedLimit, $maxLimit);
 
             // Validate search query
             if (!empty($searchQuery) && !Validator::validateSearchQuery($searchQuery)) {
@@ -98,19 +114,15 @@ class GuestController {
 
             // Esegui query per ottenere TUTTI i record filtrati
             if ($decoded->role === 'hostess') {
-                $allFilteredResult = $this->guestRepository->getGuestsForHostess($decoded->user_id, $statsFilters);
+                $totalCount = $this->guestRepository->countGuestsForHostess($decoded->user_id, $statsFilters);
             } else {
-                $allFilteredResult = $this->guestRepository->searchGuests($statsFilters);
+                $countResult = $this->guestRepository->searchGuests(array_merge($statsFilters, ['limit' => 1, 'offset' => 0]));
+                $totalCount = $countResult['total_found'] ?? 0;
             }
 
-            // Calcola statistiche su TUTTI i record filtrati
-            $stats = $this->calculateStats($allFilteredResult['results']);
+            $stats = $this->calculateStats($result['results']);
+            $stats['total_count'] = $totalCount;
 
-            // Aggiungi total_count alle stats per il frontend
-            $stats['total_count'] = count($allFilteredResult['results']);
-
-            // Get total count for pagination (only if needed)
-            $totalCount = $stats['total_count'];
 
             // Log the search
             LogService::log(
@@ -165,6 +177,7 @@ class GuestController {
             $this->sendError('Search failed', $e->getMessage(), 500);
         }
     }
+    
 
     /**
      * Calculate statistics from guest results
@@ -683,12 +696,16 @@ class GuestController {
             $input = $this->getJsonInput();
             $stadiumId = TenantMiddleware::getStadiumIdForQuery();
 
+            // ✅ LOCK OTTIMISTICO: Ottieni dati correnti con timestamp
             $guestBefore = $this->guestRepository->getGuestDataForDiff($id, $stadiumId);
             
             if (!$guestBefore) {
                 $this->sendError('Guest not found', [], 404);
                 return;
             }
+
+            // Salva updated_at per lock ottimistico
+            $expectedUpdatedAt = $guestBefore['updated_at'];
 
             // For hostess, verify they can edit this guest
             if ($decoded->role === 'hostess') {
@@ -773,12 +790,33 @@ class GuestController {
                 return;
             }
 
-            // Perform update
-            $updated = $this->guestRepository->update($id, $updateData, $stadiumId);
+            // PERFORM UPDATE CON OPTIMISTIC LOCK
+            try {
+                $updated = $this->guestRepository->update(
+                    $id, 
+                    $updateData, 
+                    $stadiumId, 
+                    $expectedUpdatedAt  // Passa il timestamp per lock
+                );
 
-            if (!$updated) {
-                $this->sendError('Failed to update guest', [], 500);
-                return;
+                if (!$updated) {
+                    $this->sendError('Failed to update guest', [], 500);
+                    return;
+                }
+            } catch (Exception $e) {
+                // GESTIONE CONFLITTO: Un'altra hostess ha modificato il record
+                if (strpos($e->getMessage(), 'CONFLICT') !== false) {
+                    $this->sendError(
+                        'Data conflict', 
+                        [
+                            'message' => 'Questo ospite è stato modificato da un\'altra hostess. Ricarica i dati e riprova.',
+                            'conflict' => true
+                        ], 
+                        409  // HTTP 409 Conflict
+                    );
+                    return;
+                }
+                throw $e;  // Re-throw other exceptions
             }
 
             // Get updated guest data
@@ -824,7 +862,7 @@ class GuestController {
                 'notification_queued' => $decoded->role === 'hostess' && !empty($changes)
             ]);
 
-            // ✅ Chiudi la connessione HTTP (il client non aspetta più)
+            // Chiudi la connessione HTTP (il client non aspetta più)
             if (function_exists('fastcgi_finish_request')) {
                 fastcgi_finish_request();
             } else {
